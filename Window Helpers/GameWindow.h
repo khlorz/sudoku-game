@@ -1,7 +1,7 @@
 #pragma once
 
 #include "imgui.h"
-#include "Sudoku.h"
+#include "sdq.h"
 
 struct SudokuTile
 {
@@ -13,10 +13,10 @@ private:
 	bool PuzzleTile;                    // The tile that can't be changed or is the puzzle number
 	bool ErrorTile;                     // A bool to show if the tile is an error (has duplicate number in the row or column or cell)
 	bool Initialized;                   // Initialized flag so the unique id number can't be changed
-	char ButtonLabel[16];
-	char ContextPopUpLabel[16];
-	char InputIntLabel[16];
-	static constexpr size_t CharBufferSize = 16;
+	char ButtonLabel[32];
+	char ContextPopUpLabel[32];
+	char InputIntLabel[32];
+	static constexpr size_t CharBufferSize = 32;
 	static constexpr ImVec2 ButtonSize = ImVec2(48.50f, 48.50f);
 
 public:
@@ -31,11 +31,19 @@ public:
 	void SetTilePuzzleNumber(uint16_t t_number, uint16_t solution_number);
 	// Sets the tile to be shown as a solution number
 	void SetAsSolutionTile(bool enable);
+	// Sets the tile to be shown with pencilmarks
+	void SetAsPencilmarkTile(bool enable);
 	// Resets the tile
 	void ResetTile();
+	//
+	bool IsPuzzleTile();
+	//
+	bool IsTileFilled();
+	//
+	void RecheckError(sdq::GameContext& sudoku_context, uint16_t row, uint16_t col);
 	// Renders the tile button and it's popup context
 	// Returns false if the input is not valid, otherwise true
-	bool RenderButton(Sudoku& sudoku_context, uint16_t row, uint16_t col, bool error_override);
+	bool RenderButton(sdq::GameContext& sudoku_context, uint16_t row, uint16_t col, bool error_override);
 };
 
 template<size_t S>
@@ -48,18 +56,16 @@ struct TimeObj
 	size_t Minutes;
 	float  Seconds;
 
-	TimeObj() :
-		Days(0), Hours(0), Minutes(0), Seconds(0.0f)
-	{}
-	TimeObj& operator += (float _seconds) noexcept
+	constexpr TimeObj() noexcept: Days(0), Hours(0), Minutes(0), Seconds(0.0f) {}
+	constexpr TimeObj& operator += (float _seconds) noexcept
 	{
 		this->Seconds += _seconds;
 		while (Seconds >= 60.0f) { ++this->Minutes; this->Seconds -= 60.0f; }
 		while (Minutes >= 60)    { ++this->Hours;   this->Minutes -= 60; }
-		while (Hours   >= 24)    { ++this->Days;    this->Hours   -= 60; }
+		while (Hours   >= 24)    { ++this->Days;    this->Hours   -= 24; }
 		return *this;
 	}
-	void Clear() { Days = 0; Hours = 0; Minutes = 0; Seconds = 0.0f; }
+	constexpr void Clear() noexcept { Days = 0; Hours = 0; Minutes = 0; Seconds = 0.0f; }
 };
 
 class GameWindow
@@ -67,13 +73,16 @@ class GameWindow
 private:
 	bool             Initialized;
 	bool             GameStart;
-	bool             GameEnd;
 	bool             WindowClose;
 	bool             ShouldShowSolution;
 	bool             ShouldAlwaysShowError;
+	bool             CheckGameState;
+	bool             OpenGameEndWindow;
+	bool             OpenFileWindow;
+	bool             SudokuFileSaved;
 	TimeObj          TimeElapsed;
 	TimeObj          ShowSolutionTotalTime;
-	Sudoku           SudokuContext;
+	sdq::GameContext SudokuContext;
 	SudokuTiles<9>   SudokuGameTiles;
 	SudokuDifficulty GameDifficulty;
 
@@ -82,16 +91,20 @@ public:
 
 	void RenderWindow();
 	bool IsWindowClosed();
-	bool OneTimeInitialize();
 
 private:
+	void FileWindow();
+	void RecheckTiles();
 	void GameOptions();
-	bool InitializeGame();
+	bool CreateNewGame(const char* filepath);
+	bool CreateNewGame(SudokuDifficulty difficulty);
+	void StopOngoingGame();
 	void MainMenuBar();
-	void SetSudokuTileNumbers();
+	void SetSudokuTilesForNewGame();
 	void GameEndWindow();
 	bool GameMainWindow();
 	void RenderSudokuBoard();
 	void SetShowSolution();
+	void Update();
 
 };
