@@ -28,7 +28,7 @@ public:
 	// Sets the number of the tile
 	void SetTileNumber(uint16_t t_number);
 	// Sets the tile as a puzzle number
-	void SetTilePuzzleNumber(uint16_t t_number, uint16_t solution_number);
+	void SetTilePuzzleNumber(uint16_t t_number, uint16_t solution_number, bool is_puzzle);
 	// Sets the tile to be shown as a solution number
 	void SetAsSolutionTile(bool enable);
 	// Sets the tile to be shown with pencilmarks
@@ -79,12 +79,15 @@ private:
 	bool             CheckGameState;
 	bool             OpenGameEndWindow;
 	bool             OpenFileWindow;
+	bool             OpenLoadSaveFileWindow;
 	bool             SudokuFileSaved;
 	TimeObj          TimeElapsed;
 	TimeObj          ShowSolutionTotalTime;
 	sdq::GameContext SudokuContext;
 	SudokuTiles<9>   SudokuGameTiles;
 	SudokuDifficulty GameDifficulty;
+	std::string      SaveFilePath;
+	std::string      CurrentlyOpenFile;
 
 public:
 	GameWindow();
@@ -96,7 +99,7 @@ private:
 	void FileWindow();
 	void RecheckTiles();
 	void GameOptions();
-	bool CreateNewGame(const char* filepath);
+	bool CreateNewGame(const std::string& filepath);
 	bool CreateNewGame(SudokuDifficulty difficulty);
 	void StopOngoingGame();
 	void MainMenuBar();
@@ -106,5 +109,9 @@ private:
 	void RenderSudokuBoard();
 	void SetShowSolution();
 	void Update();
-
+	bool SaveProgress();
+	bool LoadSaveFile();
+	void CreateSaveFilePath();
+	void LoadSaveFileWindow();
+	void SetSudokuTileFromSaveFile();
 };
