@@ -1,6 +1,8 @@
 #include "sdq.h"
 #include <fstream>
 #include <filesystem>
+#include "boost/archive/binary_iarchive.hpp"
+#include "boost/archive/binary_oarchive.hpp"
 
 // Functions for querying the sudoku board rows/columns/cells
 namespace sdq::helpers
@@ -74,7 +76,6 @@ constexpr std::tuple<int, int, int, int> GetMinMaxRowColumnFromCell(int const ce
 }
 
 }
-
 
 namespace sdq
 {
@@ -155,25 +156,24 @@ std::bitset<9>& BoardOccurences::GetCellOccurences(int row, int col) noexcept
 // BoardTile CLASS
 //--------------------------------------------------------------------------------------------------------------------------------
 
-BoardTile::BoardTile(std::array<std::array<int, 9>, 9>& board, BoardOccurences& board_occurences, int row, int col, int cell) noexcept
+BoardTile::BoardTile(int tile_number, int row, int col, BoardOccurences& board_occurences) noexcept
 {
-    this->CreateSudokuTile(board, board_occurences, row, col, cell);
+    this->Initialize(tile_number, row, col, board_occurences);
 }
 
-void BoardTile::CreateSudokuTile(const std::array<std::array<int, 9>, 9>& board, BoardOccurences& board_occurences, int row, int col, int cell) noexcept
+void BoardTile::Initialize(int tile_number, int row, int col, BoardOccurences& board_occurences) noexcept
 {
     Row           = row;
     Column        = col;
-    Cell          = cell;
-    TileNumber    = board[row][col];
-    PuzzleTile    = board[row][col] == 0;
+    Cell          = sdq::helpers::GetCellBlock(row, col);
+    TileNumber    = tile_number;
     RowOccurence  = &board_occurences.GetRowOccurences(row);
     ColOccurence  = &board_occurences.GetColumnOccurences(col);
     CellOccurence = &board_occurences.GetCellOccurences(row, col);
     Pencilmarks   = *RowOccurence | *ColOccurence | *CellOccurence;
 }
 
-void BoardTile::ClearTile() noexcept
+void BoardTile::Clear() noexcept
 {
     this->TileNumber  = 0;
     this->Pencilmarks = 0;
@@ -248,25 +248,9 @@ GameBoard::GameBoard() : BoardInitialized(false)
 {
     PuzzleTiles.reserve(64);
     BoardOccurences.ResetAll();
-    constexpr std::array<std::array<int, 9>, 9> empty_board = { {  {0, 0, 0, 0, 0, 0, 0, 0, 0},
-                                                                   {0, 0, 0, 0, 0, 0, 0, 0, 0},
-                                                                   {0, 0, 0, 0, 0, 0, 0, 0, 0},
-                                                                   {0, 0, 0, 0, 0, 0, 0, 0, 0},
-                                                                   {0, 0, 0, 0, 0, 0, 0, 0, 0},
-                                                                   {0, 0, 0, 0, 0, 0, 0, 0, 0},
-                                                                   {0, 0, 0, 0, 0, 0, 0, 0, 0},
-                                                                   {0, 0, 0, 0, 0, 0, 0, 0, 0},
-                                                                   {0, 0, 0, 0, 0, 0, 0, 0, 0} } };
-
-    for(int row = 0; row < 9; ++row){
-        for(int col = 0; col < 9; ++col){
-            BoardTiles[row][col].CreateSudokuTile(empty_board, 
-                                                  BoardOccurences, 
-                                                  row, 
-                                                  col, 
-                                                  sdq::helpers::GetCellBlock(row, col));
-        }
-    }
+    for(int row = 0; row < 9; ++row)
+        for(int col = 0; col < 9; ++col)
+            BoardTiles[row][col].Initialize(0, row, col, BoardOccurences);
 }
 
 GameBoard::GameBoard(const GameBoard& other) noexcept
@@ -300,7 +284,7 @@ GameBoard& GameBoard::operator = (const GameBoard& other) noexcept
         return *this;
     }
 
-    // Create new puzzle tiles because the pointers will be pointing to a different objects!
+    // Create new puzzle tiles because the pointers will be pointing to different objects!
     this->CreatePuzzleTiles();
     return *this;
 }
@@ -364,25 +348,19 @@ bool GameBoard::IsTileFilled(int row, int column) noexcept
 // SudokuBoard Basic Functions
 //----------------------------------
 
-bool GameBoard::CreateSudokuBoard(const std::array<std::array<int, 9>, 9>& sudoku_board) noexcept
+bool GameBoard::CreateSudokuBoard(const std::array<std::array<int, 9>, 9>& sudoku_board, bool create_puzzletiles_vec) noexcept
 {
-    if(!this->CreateBoardOccurences(sudoku_board)){
-        BoardInitialized = false;
-        return false;
-    }
+    this->ClearSudokuBoard();
+    BoardInitialized = this->CreateBoardOccurences(sudoku_board);
 
-    for(int row = 0; row < 9; ++row){
-        for(int col = 0; col < 9; ++col){
-            BoardTiles[row][col].CreateSudokuTile(sudoku_board, 
-                                                  BoardOccurences, 
-                                                  row, 
-                                                  col, 
-                                                  sdq::helpers::GetCellBlock(row, col));
-        }
-    }
+    for (int row = 0; row < 9; ++row)
+        for (int col = 0; col < 9; ++col)
+            BoardTiles[row][col].Initialize(sudoku_board[row][col], row, col, BoardOccurences); 
+    
+    if (create_puzzletiles_vec)
+        this->CreatePuzzleTiles();
 
-    BoardInitialized = true;
-    return CreatePuzzleTiles();
+    return BoardInitialized;
 }
 
 bool GameBoard::CreateBoardOccurences(const std::array<std::array<int, 9>, 9>& board) noexcept
@@ -411,7 +389,7 @@ void GameBoard::ClearSudokuBoard() noexcept
 {
     for (auto& row_tiles : BoardTiles) {
         for (auto& tile : row_tiles) {
-            tile.ClearTile();
+            tile.Clear();
         }
     }
 
@@ -420,22 +398,13 @@ void GameBoard::ClearSudokuBoard() noexcept
     PuzzleTiles.clear();
 }
 
-bool GameBoard::CreatePuzzleTiles() noexcept
+void GameBoard::CreatePuzzleTiles() noexcept
 {
-    if (!BoardInitialized) {
-        return false;
-    }
-
     PuzzleTiles.clear();
-    for (auto& row_tiles : BoardTiles) {
-        for (auto& tile : row_tiles) {
-            if (!tile.IsTileFilled()) {
+    for (auto& row_tiles : BoardTiles)
+        for (auto& tile : row_tiles)
+            if (!tile.IsTileFilled())
                 PuzzleTiles.push_back(&tile);
-            }
-        }
-    }
-
-    return true;
 }
 
 void GameBoard::UpdateBoardOccurences() noexcept
@@ -761,6 +730,21 @@ bool GameContext::CreateSudoku(const std::array<std::array<int, 9>, 9>& board) n
 
     GameDifficulty   = SudokuDifficulty_Random;
     RandomDifficulty = sdq::utils::CheckPuzzleDifficulty(PuzzleBoard);
+
+    return true;
+}
+
+bool GameContext::CreateSudoku(const std::array<std::array<int, 9>, 9>& incomplete_board, const std::vector<std::pair<int, int>>& puzzle_tile_pos, const std::array<std::array<int, 9>, 9>& solution_board, SudokuDifficulty difficulty) noexcept
+{
+    PuzzleBoard.CreateSudokuBoard(incomplete_board, false);
+
+    for (auto& pos : puzzle_tile_pos)
+        PuzzleBoard.PuzzleTiles.push_back(&PuzzleBoard.BoardTiles[pos.first][pos.second]);
+
+    SolutionBoard.CreateSudokuBoard(solution_board, false);
+  
+    GameDifficulty = SudokuDifficulty_Random;
+    RandomDifficulty = difficulty;
 
     return true;
 }
@@ -1335,6 +1319,26 @@ bool SolveHumanely(GameBoard& sudoku_board, size_t* difficulty_score) noexcept
 
 }
 
+namespace boost::serialization
+{
+
+template<class Archive>
+void save(Archive& archive, const int& number, const uint32_t version)
+{
+    archive & number;
+}
+
+template<class Archive>
+void load(Archive& archive, int& number, const uint32_t version)
+{
+    archive& number;
+}
+
+}
+
+BOOST_SERIALIZATION_SPLIT_FREE(int);
+BOOST_CLASS_VERSION(int, 0);
+
 namespace sdq::utils
 {
     
@@ -1499,7 +1503,7 @@ SudokuDifficulty CheckPuzzleDifficulty(GameBoard& sudoku_board) noexcept
 
 std::optional<std::array<std::array<int, 9>, 9>> OpenSudokuFile(const char* filename) noexcept
 {
-    std::ifstream ifile(filename);
+    std::ifstream ifile(filename, std::ios::in);
     if (!ifile.good())
         return std::nullopt;
 
@@ -1533,12 +1537,12 @@ bool CreateSudokuFileEx(const GameBoard& sudoku_board, const char* directory, co
         std::filesystem::create_directory(directory);
 
     int file_number = 1;
-    static const std::string root_path = file_directory.path().string() + "\\";
-    static const char* file_extension = ".txt";
+    constexpr const char* file_extension = ".txt";
     static std::string new_file_path; new_file_path.reserve(32);
     do {
         new_file_path.clear();
-        new_file_path += root_path;
+        new_file_path += directory;
+        new_file_path += "\\";
         new_file_path += filename;
         new_file_path += std::to_string(file_number++);
         new_file_path += file_extension;
@@ -1569,11 +1573,11 @@ bool CreateSudokuFile(const GameBoard& sudoku_board, const char* directory, cons
         SudokuDifficulty board_difficulty = CheckPuzzleDifficulty(sudoku_board);
         switch (board_difficulty)
         {
-        case SudokuDifficulty_Easy:      filename = "easy";     break;
-        case SudokuDifficulty_Normal:    filename = "normal";   break;
-        case SudokuDifficulty_Insane:      filename = "insane";   break;
+        case SudokuDifficulty_Easy:       filename = "easy";       break;
+        case SudokuDifficulty_Normal:     filename = "normal";     break;
+        case SudokuDifficulty_Insane:     filename = "insane";     break;
         case SudokuDifficulty_Diabolical: filename = "diabolical"; break;
-        default:                         filename = "random";   break;
+        default:                          filename = "random";     break;
         }
     }
 
@@ -1586,15 +1590,90 @@ bool CreateSudokuFile(const GameContext& sudoku_context, const char* directory, 
         SudokuDifficulty board_difficulty = sudoku_context.GetBoardDifficulty();
         switch (board_difficulty)
         {
-        case SudokuDifficulty_Easy:      filename = "easy";     break;
-        case SudokuDifficulty_Normal:    filename = "normal";   break;
-        case SudokuDifficulty_Insane:      filename = "insane";   break;
+        case SudokuDifficulty_Easy:       filename = "easy";       break;
+        case SudokuDifficulty_Normal:     filename = "normal";     break;
+        case SudokuDifficulty_Insane:     filename = "insane";     break;
         case SudokuDifficulty_Diabolical: filename = "diabolical"; break;
-        default:                         filename = "random";   break;
+        default:                          filename = "random";     break;
         }
     }
 
     return CreateSudokuFileEx(*sudoku_context.GetPuzzleBoard(), directory, filename);
+}
+
+bool SaveSudokuProgress(const GameContext& sudoku_context, const char* filepath) noexcept
+{
+    std::fstream new_savefile(filepath, std::ios::in | std::ios::out | std::ios::trunc | std::ios::binary);
+    if (!new_savefile.good())
+        return false;
+
+    {
+        boost::archive::binary_oarchive out_savefile(new_savefile);
+        
+        out_savefile & sudoku_context.GetBoardDifficulty();
+
+        for (auto& row_tile : sudoku_context.GetSolutionBoard()->BoardTiles) {
+            for (auto& tile : row_tile)
+                out_savefile & tile.TileNumber;
+        }
+
+        for (auto& row_tile : sudoku_context.GetPuzzleBoard()->BoardTiles) {
+            for (auto& tile : row_tile)
+                out_savefile& tile.TileNumber;
+        }
+
+        for (auto& tile : sudoku_context.GetPuzzleBoard()->PuzzleTiles) {
+            out_savefile& tile->Row;
+            out_savefile& tile->Column;
+        }
+    }
+
+    return true;
+}
+
+bool LoadSudokuProgress(GameContext& sudoku_context, const char* filepath) noexcept
+{
+    std::ifstream save_file(filepath, std::ios::in);
+    if (!save_file.good())
+        return false;
+
+
+    SudokuDifficulty difficulty = 0;
+    std::array<std::array<int, 9>, 9> solution_board;
+    std::array<std::array<int, 9>, 9> puzzle_board;
+    std::vector<std::pair<int, int>> puzzle_tiles;
+
+    {
+        boost::archive::binary_iarchive input_savefile(save_file);
+
+        input_savefile & difficulty;
+
+        for (int row_iter = 0; row_iter < 9; ++row_iter) {
+            for (int col_iter = 0; col_iter < 9; ++col_iter) {
+                input_savefile & solution_board[row_iter][col_iter];
+            }
+        }
+
+        for (int row_iter = 0; row_iter < 9; ++row_iter) {
+            for (int col_iter = 0; col_iter < 9; ++col_iter) {
+                input_savefile & puzzle_board[row_iter][col_iter];
+            }
+        }
+
+        int row = 0, col = 0;
+        do {
+            try {
+                input_savefile & row;
+                input_savefile & col;
+            } catch (const std::exception& e) {
+                break;
+            }
+            puzzle_tiles.push_back({ row, col });
+        } while (true);
+    }
+
+    sudoku_context.CreateSudoku(puzzle_board, puzzle_tiles, solution_board, difficulty);
+    return true;
 }
 
 }

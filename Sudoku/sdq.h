@@ -92,15 +92,14 @@ private:
 
 public:
     int             TileNumber;
-    bool            PuzzleTile;
     int             Row, Column, Cell;
-    std::bitset<9>  Pencilmarks;        
+    std::bitset<9>  Pencilmarks;
 
-    BoardTile() : TileNumber('0'), PuzzleTile(false), Row(-1), Column(-1), Cell(-1), Pencilmarks(0) {}
-    BoardTile(std::array<std::array<int, 9>, 9>& board, BoardOccurences& board_occurences, int row, int col, int cell) noexcept;
+    BoardTile() : TileNumber('0'), Row(-1), Column(-1), Cell(-1), Pencilmarks(0) {}
+    BoardTile(int tile_number, int row, int col, BoardOccurences& board_occurences) noexcept;
 
-    void            CreateSudokuTile(const std::array<std::array<int, 9>, 9>& board, BoardOccurences& board_occurences, int row, int col, int cell) noexcept;
-    void            ClearTile() noexcept;
+    void            Initialize(int tile_number, int row, int col, BoardOccurences& board_occurences) noexcept;
+    void            Clear() noexcept;
     void            SetTileNumber(int bit_number) noexcept;
     void            ResetTileNumber() noexcept;
     void            InitializeTileOccurences(BoardOccurences& board_occurences) noexcept;
@@ -127,12 +126,12 @@ struct GameBoard
     GameBoard& operator = (const GameBoard& other) noexcept;
     bool       operator == (const GameBoard& other) const noexcept;
 
-    bool       CreateSudokuBoard(const std::array<std::array<int, 9>, 9>& sudoku_board) noexcept;
+    bool       CreateSudokuBoard(const std::array<std::array<int, 9>, 9>& sudoku_board, bool create_puzzletiles_vec = true) noexcept;
     void       UpdateBoardOccurences() noexcept;
     void       UpdateBoardOccurences(int row, int column) noexcept;
     void       ClearSudokuBoard() noexcept;
     bool       IsBoardCompleted() const noexcept;
-    bool       CreatePuzzleTiles() noexcept;
+    void       CreatePuzzleTiles() noexcept;
     BoardTile* FindNextEmptyPosition(int row, int col) noexcept;
     BoardTile* FindNextEmptyPosition() noexcept;
     BoardTile* FindLowestMRV() noexcept;
@@ -177,8 +176,14 @@ public:
     bool CreateSudoku(const std::array<std::array<int, 9>, 9>& board) noexcept;
     // Initialized the game with a random sudoku board
     bool CreateSudoku(SudokuDifficulty game_difficulty) noexcept;
+    // Initialize the game with a save progress
+    bool CreateSudoku(const std::array<std::array<int, 9>, 9>& incomplete_board, const std::vector<std::pair<int, int>>& puzzle_tile_pos, const std::array<std::array<int, 9>, 9>& solution_board, SudokuDifficulty difficulty) noexcept;
     // Checks if the current puzzle is already finished
     bool CheckPuzzleState() const noexcept;
+    ////
+    //bool LoadSudokuSave(const char* filepath) noexcept;
+    ////
+    //bool SaveSudokuProgress(const char* filepath) noexcept;
 
     // Getters
     const GameBoard*        GetPuzzleBoard() const noexcept;
@@ -279,9 +284,17 @@ CheckPuzzleDifficulty(GameBoard& sudoku_board) noexcept;
 std::optional<std::array<std::array<int, 9>, 9>> 
 OpenSudokuFile(const char* filename) noexcept;
 bool
+CreateSudokuFileEx(const GameBoard& sudoku_board, const char* directory, const char* filename) noexcept;
+bool
 CreateSudokuFile(const GameBoard& sudoku_board, const char* directory, const char* filename = nullptr) noexcept;
 bool
 CreateSudokuFile(const GameContext& sudoku_context, const char* directory, const char* filename = nullptr) noexcept;
+bool
+SaveSudokuProgress(const GameContext& sudoku_context, const char* filepath) noexcept;
+bool
+SaveSudokuProgressEx() noexcept;
+bool
+LoadSudokuProgress(GameContext& sudoku_context, const char* filepath) noexcept;
 
 }
 
