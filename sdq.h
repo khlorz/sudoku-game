@@ -253,9 +253,7 @@ SolveBruteForceEX(GameBoard& sudoku_board) noexcept;
 bool
 SolveHumanely(GameBoard& sudoku_board, size_t* difficulty_score = nullptr) noexcept;
 bool
-SolveHumanelyEX(GameBoard& sudoku_board, size_t& difficulty_score, UsedSudokuTechnique used_techniques = 0) noexcept;
-bool
-SolveHumanelyLoop(GameBoard& sudoku_board, size_t& difficulty_score) noexcept;
+SolveHumanelyEX(GameBoard& sudoku_board, size_t& difficulty_score) noexcept;
 
 }
 
@@ -284,17 +282,13 @@ CheckPuzzleDifficulty(GameBoard& sudoku_board) noexcept;
 std::optional<std::array<std::array<int, 9>, 9>> 
 OpenSudokuFile(const char* filename) noexcept;
 bool
-CreateSudokuFileEx(const GameBoard& sudoku_board, const char* directory, const char* filename) noexcept;
-bool
-CreateSudokuFile(const GameBoard& sudoku_board, const char* directory, const char* filename = nullptr) noexcept;
-bool
-CreateSudokuFile(const GameContext& sudoku_context, const char* directory, const char* filename = nullptr) noexcept;
+CreateSudokuFile(const GameBoard& sudoku_board, const char* filepath) noexcept;
 bool
 SaveSudokuProgress(const GameContext& sudoku_context, const char* filepath) noexcept;
 bool
-SaveSudokuProgressEx() noexcept;
-bool
 LoadSudokuProgress(GameContext& sudoku_context, const char* filepath) noexcept;
+SudokuDifficulty
+LoadDifficultyFromSaveFile(const char* filepath) noexcept;
 
 }
 

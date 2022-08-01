@@ -760,9 +760,11 @@ void GameContext::InitializeGameParameters(SudokuDifficulty game_difficulty) noe
     this->GameDifficulty = game_difficulty;
     switch (game_difficulty)
     {
-    case SudokuDifficulty_Random:
-        MaxRemovedTiles = 54;
+    case SudokuDifficulty_Random: {
+        std::uniform_int_distribution<> int_distrib(48, 64);
+        MaxRemovedTiles = int_distrib(GameRNG);
         break;
+    }
     case SudokuDifficulty_Easy:
         MaxRemovedTiles = 42;
         break;
@@ -1073,122 +1075,7 @@ bool SolveMRV(GameBoard& sudoku_board) noexcept
     return SolveMRVEX(sudoku_board);
 }
 
-bool SolveHumanelyEX(GameBoard& sudoku_board, size_t& difficulty_score, UsedSudokuTechnique used_techniques) noexcept
-{
-    // These are the functions that fills out the board with the sure number
-    // As such, if successful, all board pencilmarks should be updated accordingly
-    if (size_t count = techs::FindSingleCandidates(sudoku_board)) {
-        difficulty_score += count * 100;
-        if (sudoku_board.IsBoardCompleted()) {
-            return true;
-        }
-        sudoku_board.UpdateAllPencilMarks();
-        return SolveHumanelyEX(sudoku_board, difficulty_score, used_techniques);
-    }
-
-    if (size_t count = techs::FindSinglePosition(sudoku_board)) {
-        difficulty_score += count * 100;
-        if (sudoku_board.IsBoardCompleted()) {
-            return true;
-        }
-        sudoku_board.UpdateAllPencilMarks();
-        return SolveHumanelyEX(sudoku_board, difficulty_score, used_techniques);
-    }
-
-    // These are functions for removing pencilmarks to decrease the number of possible numbers in tiles
-    // As such, updating the pencilmarks is not needed
-    if (size_t count = techs::FindCandidateLines(sudoku_board)) {
-        difficulty_score += (used_techniques & UsedSudokuTechnique_CandidateLines) ? count * 200 : 350 + ((count - 1) * 200);
-        used_techniques |= UsedSudokuTechnique_CandidateLines;
-        return SolveHumanelyEX(sudoku_board, difficulty_score, used_techniques);
-    }
-
-    if (size_t count = techs::FindIntersections(sudoku_board)) {
-        difficulty_score += (used_techniques & UsedSudokuTechnique_Intersections) ? count * 500 : 800 + ((count - 1) * 500);
-        used_techniques |= UsedSudokuTechnique_Intersections;
-        return SolveHumanelyEX(sudoku_board, difficulty_score, used_techniques);
-    }
-
-    {
-        const auto& [pair_count, triple_count, quad_count] = techs::FindNakedTuples(sudoku_board);
-
-        bool found = false;
-        if (pair_count > 0) {
-            difficulty_score += (used_techniques & UsedSudokuTechnique_NakedPair) ? pair_count * 500 : 750 + ((pair_count - 1) * 500);
-            used_techniques |= UsedSudokuTechnique_NakedPair;
-            found = true;
-        }
-        if (triple_count > 0) {
-            difficulty_score += (used_techniques & UsedSudokuTechnique_NakedTriple) ? triple_count * 1400 : 2000 + ((triple_count - 1) * 1400);
-            used_techniques |= UsedSudokuTechnique_NakedTriple;
-            found = true;
-        }
-        if (quad_count > 0) {
-            difficulty_score += (used_techniques & UsedSudokuTechnique_NakedQuad) ? quad_count * 4000 : 5000 + ((quad_count - 1) * 4000);
-            used_techniques |= UsedSudokuTechnique_NakedQuad;
-            found = true;
-        }
-        if (found) {
-            return SolveHumanelyEX(sudoku_board, difficulty_score, used_techniques);
-        }
-    }
-
-    {
-        const auto& [pair_count, triple_count, quad_count] = techs::FindHiddenTuples(sudoku_board);
-        bool found = false;
-        if (pair_count > 0) {
-            difficulty_score += (used_techniques & UsedSudokuTechnique_HiddenPair) ? pair_count * 1200 : 1500 + ((pair_count - 1) * 1200);
-            used_techniques |= UsedSudokuTechnique_HiddenPair;
-            found = true;
-        }
-        if (triple_count > 0) {
-            difficulty_score += (used_techniques & UsedSudokuTechnique_HiddenTriple) ? triple_count * 1600 : 2400 + ((triple_count - 1) * 1600);
-            used_techniques |= UsedSudokuTechnique_HiddenTriple;
-            found = true;
-        }
-        if (quad_count > 0) {
-            difficulty_score += (used_techniques & UsedSudokuTechnique_HiddenQuad) ? quad_count * 5000 : 7000 + ((quad_count - 1) * 5000);
-            used_techniques |= UsedSudokuTechnique_HiddenQuad;
-            found = true;
-        }
-        if (found) {
-            return SolveHumanelyEX(sudoku_board, difficulty_score, used_techniques);
-        }
-    }
-
-    if (size_t count = techs::FindYWings(sudoku_board)) {
-        difficulty_score += (used_techniques & UsedSudokuTechnique_YWing) ? count * 2500 : 4000 + ((count - 1) * 2500);
-        used_techniques |= UsedSudokuTechnique_YWing;
-        return SolveHumanelyEX(sudoku_board, difficulty_score, used_techniques);
-    }
-
-    {
-        const auto& [xwing_count, swordfish_count, jellyfish_count] = techs::FindFishes(sudoku_board);
-        bool found = false;
-        if (xwing_count > 0) {
-            difficulty_score += (used_techniques & UsedSudokuTechnique_XWing) ? swordfish_count * 2000 : 3000 + ((swordfish_count - 1) * 2000);
-            used_techniques |= UsedSudokuTechnique_XWing;
-            found = true;
-        }
-        if (swordfish_count > 0) {
-            difficulty_score += (used_techniques & UsedSudokuTechnique_SwordFish) ? swordfish_count * 4000 : 5000 + ((swordfish_count - 1) * 4000);
-            used_techniques |= UsedSudokuTechnique_SwordFish;
-            found = true;
-        }
-        if (jellyfish_count > 0) {
-            difficulty_score += (used_techniques & UsedSudokuTechnique_JellyFish) ? jellyfish_count * 5000 : 8000 + ((jellyfish_count - 1) * 5000);
-            used_techniques |= UsedSudokuTechnique_JellyFish;
-            found = true;
-        }
-        if (found) {
-            return SolveHumanelyEX(sudoku_board, difficulty_score, used_techniques);
-        }
-    }
-
-    return false;
-}
-
-bool SolveHumanelyLoop(GameBoard& sudoku_board, size_t& difficulty_score) noexcept
+bool SolveHumanelyEX(GameBoard& sudoku_board, size_t& difficulty_score) noexcept
 {
     int used_techniques = 0;
     while (true) {
@@ -1530,25 +1417,9 @@ std::optional<std::array<std::array<int, 9>, 9>> OpenSudokuFile(const char* file
     return output_array;
 }
 
-bool CreateSudokuFileEx(const GameBoard& sudoku_board, const char* directory, const char* filename) noexcept
+bool CreateSudokuFile(const GameBoard& sudoku_board, const char* filepath) noexcept
 {
-    std::filesystem::directory_entry file_directory(directory);
-    if (!file_directory.exists())
-        std::filesystem::create_directory(directory);
-
-    int file_number = 1;
-    constexpr const char* file_extension = ".txt";
-    static std::string new_file_path; new_file_path.reserve(32);
-    do {
-        new_file_path.clear();
-        new_file_path += directory;
-        new_file_path += "\\";
-        new_file_path += filename;
-        new_file_path += std::to_string(file_number++);
-        new_file_path += file_extension;
-    } while (std::filesystem::exists(new_file_path));
-
-    std::fstream new_file(new_file_path, std::ios::in | std::ios::out | std::ios::trunc);
+    std::fstream new_file(filepath, std::ios::in | std::ios::out | std::ios::trunc);
     if (!new_file.good())
         return false;
 
@@ -1565,40 +1436,6 @@ bool CreateSudokuFileEx(const GameBoard& sudoku_board, const char* directory, co
 
     new_file.close();
     return true;
-}
-
-bool CreateSudokuFile(const GameBoard& sudoku_board, const char* directory, const char* filename) noexcept
-{
-    if (filename == nullptr) {
-        SudokuDifficulty board_difficulty = CheckPuzzleDifficulty(sudoku_board);
-        switch (board_difficulty)
-        {
-        case SudokuDifficulty_Easy:       filename = "easy";       break;
-        case SudokuDifficulty_Normal:     filename = "normal";     break;
-        case SudokuDifficulty_Insane:     filename = "insane";     break;
-        case SudokuDifficulty_Diabolical: filename = "diabolical"; break;
-        default:                          filename = "random";     break;
-        }
-    }
-
-    return CreateSudokuFileEx(sudoku_board, directory, filename);
-}
-
-bool CreateSudokuFile(const GameContext& sudoku_context, const char* directory, const char* filename) noexcept
-{
-    if (filename == nullptr) {
-        SudokuDifficulty board_difficulty = sudoku_context.GetBoardDifficulty();
-        switch (board_difficulty)
-        {
-        case SudokuDifficulty_Easy:       filename = "easy";       break;
-        case SudokuDifficulty_Normal:     filename = "normal";     break;
-        case SudokuDifficulty_Insane:     filename = "insane";     break;
-        case SudokuDifficulty_Diabolical: filename = "diabolical"; break;
-        default:                          filename = "random";     break;
-        }
-    }
-
-    return CreateSudokuFileEx(*sudoku_context.GetPuzzleBoard(), directory, filename);
 }
 
 bool SaveSudokuProgress(const GameContext& sudoku_context, const char* filepath) noexcept
@@ -1628,6 +1465,7 @@ bool SaveSudokuProgress(const GameContext& sudoku_context, const char* filepath)
         }
     }
 
+    new_savefile.close();
     return true;
 }
 
@@ -1643,37 +1481,61 @@ bool LoadSudokuProgress(GameContext& sudoku_context, const char* filepath) noexc
     std::array<std::array<int, 9>, 9> puzzle_board;
     std::vector<std::pair<int, int>> puzzle_tiles;
 
-    {
+    try {
         boost::archive::binary_iarchive input_savefile(save_file);
-
         input_savefile & difficulty;
 
         for (int row_iter = 0; row_iter < 9; ++row_iter) {
             for (int col_iter = 0; col_iter < 9; ++col_iter) {
-                input_savefile & solution_board[row_iter][col_iter];
+                input_savefile& solution_board[row_iter][col_iter];
             }
         }
 
         for (int row_iter = 0; row_iter < 9; ++row_iter) {
             for (int col_iter = 0; col_iter < 9; ++col_iter) {
-                input_savefile & puzzle_board[row_iter][col_iter];
+                input_savefile& puzzle_board[row_iter][col_iter];
             }
         }
 
         int row = 0, col = 0;
         do {
             try {
-                input_savefile & row;
-                input_savefile & col;
-            } catch (const std::exception& e) {
+                input_savefile& row;
+                input_savefile& col;
+            }
+            catch (const std::exception& e) {
                 break;
             }
             puzzle_tiles.push_back({ row, col });
         } while (true);
     }
+    catch (const std::exception&) {
+        return false;
+    }
 
     sudoku_context.CreateSudoku(puzzle_board, puzzle_tiles, solution_board, difficulty);
+
+    save_file.close();
     return true;
+}
+
+SudokuDifficulty LoadDifficultyFromSaveFile(const char* filepath) noexcept
+{
+    std::ifstream save_file(filepath, std::ios::in);
+    if (!save_file.good())
+        return 0;
+
+    SudokuDifficulty difficulty = 0;
+    try {
+        boost::archive::binary_iarchive input_savefile(save_file);
+        input_savefile & difficulty;
+    }
+    catch (const std::exception&) {
+        return 0;
+    }
+
+    save_file.close();
+    return difficulty;
 }
 
 }
