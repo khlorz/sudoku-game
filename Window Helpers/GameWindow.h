@@ -2,6 +2,11 @@
 
 #include "imgui.h"
 #include "sdq.h"
+#include "ImFunks.h"
+#include <future>
+#include <thread>
+#include <filesystem>
+#include <ctime>
 
 struct SudokuTile
 {
@@ -68,6 +73,18 @@ struct TimeObj
 	constexpr void Clear() noexcept { Days = 0; Hours = 0; Minutes = 0; Seconds = 0.0f; }
 };
 
+struct SaveFile
+{
+	bool              Exists;
+	SudokuDifficulty  Difficulty;
+	std::string       Directory;
+	std::tm           DateTime;
+
+	SaveFile() : Difficulty(SudokuDifficulty_Random), Exists(false) { Directory.reserve(20); }
+	SaveFile(const std::string& filepath) : Directory(filepath), Difficulty(SudokuDifficulty_Random), Exists(false) {}
+	SaveFile(const std::filesystem::directory_entry& filedir) : Directory(std::move(filedir.path().string())), Difficulty(SudokuDifficulty_Random), Exists(false) {}
+};
+
 class GameWindow
 {
 private:
@@ -81,13 +98,17 @@ private:
 	bool             OpenFileWindow;
 	bool             OpenLoadSaveFileWindow;
 	bool             SudokuFileSaved;
+	bool             LoadAFile;
 	TimeObj          TimeElapsed;
 	TimeObj          ShowSolutionTotalTime;
 	sdq::GameContext SudokuContext;
 	SudokuTiles<9>   SudokuGameTiles;
 	SudokuDifficulty GameDifficulty;
-	std::string      SaveFilePath;
 	std::string      CurrentlyOpenFile;
+
+	mutable std::mutex     NewGameMutex;
+	std::future<bool>      NewGameFuture;
+	ImFunks::LoadingScreen NewGameLoading;
 
 public:
 	GameWindow();
@@ -101,6 +122,8 @@ private:
 	void GameOptions();
 	bool CreateNewGame(const std::string& filepath);
 	bool CreateNewGame(SudokuDifficulty difficulty);
+	bool LoadSaveFile(const std::string& filepath);
+	bool SaveProgress(const std::string& filepath);
 	void StopOngoingGame();
 	void MainMenuBar();
 	void SetSudokuTilesForNewGame();
@@ -109,9 +132,6 @@ private:
 	void RenderSudokuBoard();
 	void SetShowSolution();
 	void Update();
-	bool SaveProgress();
-	bool LoadSaveFile();
-	void CreateSaveFilePath();
 	void LoadSaveFileWindow();
 	void SetSudokuTileFromSaveFile();
 };

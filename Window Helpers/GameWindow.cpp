@@ -1,8 +1,6 @@
 #include "GameWindow.h"
 #include "IconsFontAwesome5.h"
 #include "imgui_internal.h"
-#include <filesystem>
-#include <ctime>
 #include <fstream>
 
 //------------------------------------------------------------------
@@ -30,7 +28,8 @@ GameWindow::GameWindow() :
     OpenGameEndWindow(false),
     OpenLoadSaveFileWindow(false),
     CurrentlyOpenFile("None"),
-    GameDifficulty(SudokuDifficulty_Normal)
+    GameDifficulty(SudokuDifficulty_Normal),
+    NewGameLoading("Sudoku Creation Loading Screen", "Spinner 1")
 {
     // Initialize the sudoku tiles
     size_t tile_id = 0;
@@ -256,10 +255,10 @@ void GameWindow::MainMenuBar()
         ImGui::EndMenu();
     }
 
-#ifdef _DEBUG
+//#ifdef _DEBUG
     const ImGuiIO& io = ImGui::GetIO();
     ImGui::Text("FPS: %0.2f", io.Framerate);
-#endif // _DEBUG
+//#endif // _DEBUG
 
     ImGui::EndMainMenuBar();
 }
@@ -272,12 +271,11 @@ void GameWindow::FileWindow()
     static bool reset_scroll_pos = true;
     static bool init_modal_once = true;
     static ImGuiTextFilter file_filter;
-    static std::filesystem::path current_file;
-    static std::optional<std::array<std::array<int, 9>, 9>> input_sudoku_board;
-    static std::vector<std::filesystem::directory_entry> list_of_files;
+    static int current_file = -1;
+    static std::vector<SaveFile> saved_puzzles;
     constexpr const char* directory_name = "sudoku boards";
 
-    auto refresh_file_list = [&directory_name](std::vector<std::filesystem::directory_entry>& file_list) {
+    auto refresh_file_list = [&]() {
         if (!std::filesystem::exists(directory_name))
             std::filesystem::create_directory(directory_name);
         else if (!std::filesystem::is_directory(directory_name)) {
@@ -285,9 +283,16 @@ void GameWindow::FileWindow()
             std::filesystem::create_directory(directory_name);
         }
 
-        file_list.clear();
-        for (auto& path : std::filesystem::directory_iterator(directory_name))
-            file_list.push_back(path);
+        saved_puzzles.clear();
+        for (auto& path : std::filesystem::directory_iterator(directory_name)) {
+            if (path.is_directory())
+                continue;
+
+            saved_puzzles.push_back(path);
+            const auto& file_time = path.last_write_time();
+            std::time_t converted_time = std::chrono::system_clock::to_time_t(std::chrono::clock_cast<std::chrono::system_clock>(file_time));
+            saved_puzzles.back().DateTime = *localtime(&converted_time);
+        }
     };
 
     if (init_modal_once) {
@@ -296,17 +301,17 @@ void GameWindow::FileWindow()
         // Initialize important parameters for the modal window
         constexpr ImVec2 modal_size = ImVec2(425.0f, 337.0f);
         const ImVec2& center = ImGui::GetMainViewport()->GetCenter();
-        ImGui::OpenPopup("Open Sudoku File##GameStart");
+        ImGui::OpenPopup("Load Sudoku File##GameStart");
         ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
         ImGui::SetNextWindowSize(modal_size, ImGuiCond_Appearing);
 
         // Initialize other objects that could be expensive doing in a loop
-        refresh_file_list(list_of_files);
+        refresh_file_list();
     }
 
-    if (!ImGui::BeginPopupModal("Open Sudoku File##GameStart", nullptr, ImGuiWindowFlags_NoResize)) {
+    if (!ImGui::BeginPopupModal("Load Sudoku File##GameStart", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove)) {
         file_filter.Clear();
-        current_file.clear();
+        current_file     = -1;
         init_modal_once  = true;
         reset_scroll_pos = true;
         OpenFileWindow   = false;
@@ -319,51 +324,46 @@ void GameWindow::FileWindow()
     ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x);
     file_filter.Draw("##FileFilter");
 
-    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(5.00f, 5.00f));
-    if (ImGui::BeginTable("FilesTable", 3, ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_BordersOuter | ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY, ImVec2(ImGui::GetContentRegionAvail().x, 250.0f))) {
+    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(5.00f, 6.00f));
+    if (ImGui::BeginTable("FilesTable", 2, ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_BordersOuter | ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY, ImVec2(ImGui::GetContentRegionAvail().x, 250.0f))) {
         if (reset_scroll_pos) {
             ImGui::SetScrollY(0.0f);
             reset_scroll_pos = false;
         }
 
         ImGui::TableSetupScrollFreeze(1, 1);
-        ImGui::TableSetupColumn("File Name##FT", ImGuiTableColumnFlags_None, 250.0f);
-        ImGui::TableSetupColumn("File Size##FT", ImGuiTableColumnFlags_None, 75.0f);
-        ImGui::TableSetupColumn("File Type##FT", ImGuiTableColumnFlags_None, 75.0f);
+        ImGui::TableSetupColumn("File Name##FT",     ImGuiTableColumnFlags_None, 225.0f);
+        ImGui::TableSetupColumn("Date Modified##FT", ImGuiTableColumnFlags_None, 125.0f);
         ImGui::TableHeadersRow();
 
-        for (const auto& file : list_of_files) {
-            if (file.path().extension() != ".dat" && file.path().extension() != ".txt")
-                continue;
-
-            if (!file_filter.PassFilter(file.path().stem().string().c_str()))
+        for (int idx = 0; idx < saved_puzzles.size(); ++idx) {
+            std::string_view current_filename(saved_puzzles[idx].Directory.c_str() + 14);
+            if (!file_filter.PassFilter(current_filename.data()))
                 continue;
 
             ImGui::TableNextRow();
-            const bool selected = file.path() == current_file;
+            const bool selected = idx == current_file;
 
             ImGui::TableNextColumn();
             ImGui::TextUnformatted(ICON_FA_FILE);
             ImGui::SameLine();
-            if (ImGui::Selectable(file.path().stem().string().c_str(), selected, ImGuiSelectableFlags_SpanAllColumns)) {
-                if (selected)
-                    current_file.clear();
-                else
-                    current_file = file.path();
-            }
+            if (ImGui::Selectable(current_filename.data(), selected, ImGuiSelectableFlags_SpanAllColumns))
+                current_file = selected ? -1 : idx;
 
             ImGui::TableNextColumn();
-            ImGui::Text("%zu bytes", file.file_size());
-            ImGui::TableNextColumn();
-            ImGui::Text("%s File", file.path().extension().string().c_str());
+            const auto& file_time = saved_puzzles[idx].DateTime;
+            ImGui::Text("%.2d/%.2d/%.2d", file_time.tm_mday, file_time.tm_mon, file_time.tm_year + 1900);
+            ImGui::SameLine(72.0f);
+            ImGui::Text("%.2d:%.2d:%.2d", file_time.tm_hour, file_time.tm_min, file_time.tm_sec);
         }
 
         ImGui::EndTable();
     }
     ImGui::PopStyleVar();
 
+    ImGui::BeginDisabled(current_file < 0);
     if (ImGui::Button("Open File", ImVec2(75.0f, 0))) {
-        if (this->CreateNewGame(current_file.string().c_str()))
+        if (this->CreateNewGame(saved_puzzles[current_file].Directory))
             ImGui::CloseCurrentPopup();
         else {
             ImGui::OpenPopup("Invalid File!##ErrorWindow");
@@ -371,6 +371,7 @@ void GameWindow::FileWindow()
             ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
         }
     }
+    ImGui::EndDisabled();
 
     if (ImGui::BeginPopupModal("Invalid File!##ErrorWindow", nullptr, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize)) {
         CenterText("The file you have opened is invalid or non-existent!");
@@ -410,7 +411,7 @@ void GameWindow::FileWindow()
 
     ImGui::SameLine();
     if (ImGui::Button("Refresh##FOW", ImVec2(75.0f, 0))) {
-        refresh_file_list(list_of_files);
+        refresh_file_list();
         reset_scroll_pos = true;
     }
 
@@ -426,15 +427,30 @@ void GameWindow::LoadSaveFileWindow()
     if (!OpenLoadSaveFileWindow)
         return;
 
-    static bool reset_scroll_pos = true;
-    static bool init_modal_once = true;
+    static bool reset_scroll_pos       = true;
+    static bool init_modal_once        = true;
+    static bool show_only_filled_slots = false;
+    static int  selected_fidx          = -1;
+    static size_t selected_difficulty = 0;
     static ImGuiTextFilter file_filter;
-    static std::filesystem::path current_file;
-    static std::optional<std::array<std::array<int, 9>, 9>> input_sudoku_board;
-    static std::vector<std::filesystem::directory_entry> list_of_files;
+    static std::vector<SaveFile> save_slots(100);
+    static std::string window_label;
     constexpr const char* directory_name = "save files";
 
-    auto refresh_file_list = [&directory_name](std::vector<std::filesystem::directory_entry>& file_list) {
+    static bool init_saveslots = true;
+    if (init_saveslots) {
+        init_saveslots = false;
+        for (int idx = 0; idx < 100; ++idx) {
+            save_slots[idx].Directory.clear();
+            save_slots[idx].Directory += directory_name;
+            save_slots[idx].Directory += "\\";
+            save_slots[idx].Directory += "save ";
+            save_slots[idx].Directory += std::to_string(idx + 1);
+            save_slots[idx].Directory += ".bin";
+        }
+    }
+
+    auto refresh_list = [&]() {
         if (!std::filesystem::exists(directory_name))
             std::filesystem::create_directory(directory_name);
         else if (!std::filesystem::is_directory(directory_name)) {
@@ -442,9 +458,16 @@ void GameWindow::LoadSaveFileWindow()
             std::filesystem::create_directory(directory_name);
         }
 
-        file_list.clear();
-        for (auto& path : std::filesystem::directory_iterator(directory_name))
-            file_list.push_back(path);
+        for (auto& save_slot : save_slots) {
+            if (save_slot.Exists = std::filesystem::exists(save_slot.Directory)) {
+                save_slot.Difficulty = sdq::utils::LoadDifficultyFromSaveFile(save_slot.Directory.data());
+                const auto& file_time = std::filesystem::directory_entry(save_slot.Directory).last_write_time();
+                std::time_t converted_time = std::chrono::system_clock::to_time_t(std::chrono::clock_cast<std::chrono::system_clock>(file_time));
+                localtime_s(&save_slot.DateTime, &converted_time);
+            }
+            else
+                save_slot.Difficulty = 0;
+        }
     };
 
     if (init_modal_once) {
@@ -453,30 +476,53 @@ void GameWindow::LoadSaveFileWindow()
         // Initialize important parameters for the modal window
         constexpr ImVec2 modal_size = ImVec2(425.0f, 337.0f);
         const ImVec2& center = ImGui::GetMainViewport()->GetCenter();
-        ImGui::OpenPopup("Load Save File##GameStart");
+        window_label = LoadAFile ? "Load Save File##GameStart" : "Save Current Progress##SaveGame";
+        ImGui::OpenPopup(window_label.data());
         ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
         ImGui::SetNextWindowSize(modal_size, ImGuiCond_Appearing);
 
         // Initialize other objects that could be expensive doing in a loop
-        refresh_file_list(list_of_files);
+        refresh_list();
+        file_filter.Clear();
+        selected_fidx          = -1;
+        selected_difficulty    = 0;
+        reset_scroll_pos       = true;
+        show_only_filled_slots = LoadAFile;
     }
 
-    if (!ImGui::BeginPopupModal("Load Save File##GameStart", nullptr, ImGuiWindowFlags_NoResize)) {
-        file_filter.Clear();
-        current_file.clear();
+    if (!ImGui::BeginPopupModal(window_label.data(), nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove)) {
         init_modal_once = true;
-        reset_scroll_pos = true;
         OpenLoadSaveFileWindow = false;
         return;
     }
 
+    constexpr std::array<const char*, 5> difficulty_choices = { "All", "Easy", "Normal", "Insane", "Diabolical"};
     ImGui::AlignTextToFramePadding();
-    ImGui::Text("Find File:");
+    ImGui::Text("Filter Difficulty");
     ImGui::SameLine(0.0f, 2.50f);
-    ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x);
-    file_filter.Draw("##FileFilterLSF");
+    ImGui::PushItemWidth(162.0f);
+    if (ImGui::BeginCombo("##difficulty_combo", difficulty_choices[selected_difficulty])) {
+        for (int n = 0; n < difficulty_choices.size(); n++) {
+            const bool is_selected = (selected_difficulty == n);
+            if (ImGui::Selectable(difficulty_choices[n], is_selected)) {
+                if (!is_selected) {
+                    selected_difficulty = n;
+                    selected_fidx = -1;
+                }
+            }
+            if (is_selected)
+                ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+    
+    ImGui::SameLine();
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text("Show Saved Slots Only");
+    ImGui::SameLine(0.0f, 2.50f);
+    ImGui::Checkbox("##ShowSavedSlots", &show_only_filled_slots);
 
-    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(5.00f, 5.00f));
+    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(5.00f, 6.00f));
     if (ImGui::BeginTable("FilesTable", 3, ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_BordersOuter | ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY, ImVec2(ImGui::GetContentRegionAvail().x, 250.0f))) {
         if (reset_scroll_pos) {
             ImGui::SetScrollY(0.0f);
@@ -484,50 +530,105 @@ void GameWindow::LoadSaveFileWindow()
         }
 
         ImGui::TableSetupScrollFreeze(1, 1);
-        ImGui::TableSetupColumn("File Name##LSF", ImGuiTableColumnFlags_None, 250.0f);
-        ImGui::TableSetupColumn("File Size##LSF", ImGuiTableColumnFlags_None, 75.0f);
-        ImGui::TableSetupColumn("File Type##LSF", ImGuiTableColumnFlags_None, 75.0f);
+        ImGui::TableSetupColumn("Save Slot##LSF",     ImGuiTableColumnFlags_None, 175.0f);
+        ImGui::TableSetupColumn("Difficulty##LSF",    ImGuiTableColumnFlags_None, 100.0f);
+        ImGui::TableSetupColumn("Date Modified##LSF", ImGuiTableColumnFlags_None, 125.0f);
         ImGui::TableHeadersRow();
 
-        for (const auto& file : list_of_files) {
-            if (file.path().extension() != ".bin")
+        for (int idx = 0; idx < save_slots.size(); ++idx) {
+            std::string_view filename = std::string_view(save_slots[idx].Directory.begin() + 11, save_slots[idx].Directory.end());
+            if (!file_filter.PassFilter(filename.data()))
                 continue;
 
-            if (!file_filter.PassFilter(file.path().stem().string().c_str()))
+            if (show_only_filled_slots && !save_slots[idx].Exists)
                 continue;
 
+            if (selected_difficulty != 0 && save_slots[idx].Difficulty != selected_difficulty)
+                continue;
+
+            const bool selected = idx == selected_fidx;
+            const bool empty_slot = !save_slots[idx].Exists;
+            
+            ImGui::BeginDisabled(empty_slot && LoadAFile);
             ImGui::TableNextRow();
-            const bool selected = file.path() == current_file;
-
             ImGui::TableNextColumn();
             ImGui::TextUnformatted(ICON_FA_FILE);
             ImGui::SameLine();
-            if (ImGui::Selectable(file.path().stem().string().c_str(), selected, ImGuiSelectableFlags_SpanAllColumns)) {
-                if (selected)
-                    current_file.clear();
-                else
-                    current_file = file.path();
+            if (ImGui::Selectable(filename.data(), selected, ImGuiSelectableFlags_SpanAllColumns))
+                selected_fidx = selected ? -1 : idx;
+            if (empty_slot) {
+                ImGui::SameLine(100.0f);
+                ImGui::TextUnformatted("[empty]");
             }
 
             ImGui::TableNextColumn();
-            ImGui::Text("%zu bytes", file.file_size());
-            ImGui::TableNextColumn();
-            ImGui::Text("%s File", file.path().extension().string().c_str());
-        }
+            switch (save_slots[idx].Difficulty)
+            {
+            case SudokuDifficulty_Easy:       ImGui::TextUnformatted("Easy");       break;
+            case SudokuDifficulty_Normal:     ImGui::TextUnformatted("Normal");     break;
+            case SudokuDifficulty_Insane:     ImGui::TextUnformatted("Insane");     break;
+            case SudokuDifficulty_Diabolical: ImGui::TextUnformatted("Diabolical"); break;
+            default:                          ImGui::TextUnformatted("--------");       break;
+            }
 
+            ImGui::TableNextColumn();
+            if (empty_slot)
+                ImGui::TextUnformatted("--/--/-- -- : -- : --");
+            else {
+                const auto& file_time = save_slots[idx].DateTime;
+                ImGui::Text("%.2d/%.2d/%.2d", file_time.tm_mday, file_time.tm_mon, file_time.tm_year + 1900);
+                ImGui::SameLine(72.0f);
+                ImGui::Text("%.2d:%.2d:%.2d", file_time.tm_hour, file_time.tm_min, file_time.tm_sec);
+            }
+            ImGui::EndDisabled();
+        }
         ImGui::EndTable();
     }
     ImGui::PopStyleVar();
 
-    if (ImGui::Button("Open File##LSF", ImVec2(75.0f, 0))) {
-        SaveFilePath = std::move(current_file.string());
-        if (this->LoadSaveFile())
-            ImGui::CloseCurrentPopup();
-        else {
-            ImGui::OpenPopup("Invalid File!##ErrorWindowLSF");
-            ImGui::SetNextWindowSize(ImVec2(400.0f, 96.0f), ImGuiCond_Appearing);
-            ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::BeginDisabled(selected_fidx < 0);
+    if (ImGui::Button(LoadAFile ? "Open File##LSF" : "Save File##LSF", ImVec2(75.0f, 0))) {
+        if (LoadAFile) {
+            if (this->LoadSaveFile(save_slots[selected_fidx].Directory))
+                ImGui::CloseCurrentPopup();
+            else {
+                ImGui::OpenPopup("Invalid File!##ErrorWindowLSF");
+                ImGui::SetNextWindowSize(ImVec2(400.0f, 96.0f), ImGuiCond_Appearing);
+                ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+            }
         }
+        else {
+            if (save_slots[selected_fidx].Exists) {
+                ImGui::OpenPopup("Overwriting Save File##ErrorWindowLSF");
+                ImGui::SetNextWindowSize(ImVec2(360.0f, 96.0f), ImGuiCond_Appearing);
+                ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+            }
+            else if (this->SaveProgress(save_slots[selected_fidx].Directory)) {
+                refresh_list();
+                selected_fidx = -1;
+            }
+        }
+    }
+    ImGui::EndDisabled();
+
+    if (ImGui::BeginPopupModal("Overwriting Save File##ErrorWindowLSF", nullptr, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize)) {
+        CenterText("A save file already exist on that slot!");
+        CenterText("Do you want to overwrite the current save file?");
+
+        ImGui::SetCursorPosX((ImGui::GetWindowSize().x - 100.0f) * 0.50f);
+        if (ImGui::Button("Yes", ImVec2(50.0f, 0.0f))) {
+            if (this->SaveProgress(save_slots[selected_fidx].Directory)) {
+                refresh_list();
+                selected_fidx = -1;
+            }
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::SameLine();
+        if (ImGui::Button("No", ImVec2(50.0f, 0.0f)))
+            ImGui::CloseCurrentPopup();
+
+        ImGui::EndPopup();
     }
 
     if (ImGui::BeginPopupModal("Invalid File!##ErrorWindowLSF", nullptr, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize)) {
@@ -539,6 +640,34 @@ void GameWindow::LoadSaveFileWindow()
             ImGui::CloseCurrentPopup();
 
         if (ImGui::IsKeyPressed(525, false) || ImGui::IsKeyPressed(526, false))
+            ImGui::CloseCurrentPopup();
+
+        ImGui::EndPopup();
+    }
+
+    ImGui::SameLine();
+    ImGui::BeginDisabled(selected_fidx < 0 || !save_slots[selected_fidx].Exists);
+    if (ImGui::Button("Delete File", ImVec2(75.0f, 0.0f))) {
+        ImGui::OpenPopup("Deleting Save File##ErrorWindowLSF");
+        ImGui::SetNextWindowSize(ImVec2(360.0f, 100.0f), ImGuiCond_Appearing);
+        ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    }
+    ImGui::EndDisabled();
+
+    if (ImGui::BeginPopupModal("Deleting Save File##ErrorWindowLSF", nullptr, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize)) {
+        CenterText("This action cannot be undone!");
+        CenterText("Are you sure you want to delete the selected file?");
+
+        ImGui::SetCursorPosX((ImGui::GetWindowSize().x - 100.0f) * 0.50f);
+        if (ImGui::Button("Yes", ImVec2(50.0f, 0.0f))) {
+            std::filesystem::remove(save_slots[selected_fidx].Directory);
+            refresh_list();
+            selected_fidx = -1;
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::SameLine();
+        if (ImGui::Button("No", ImVec2(50.0f, 0.0f)))
             ImGui::CloseCurrentPopup();
 
         ImGui::EndPopup();
@@ -565,8 +694,8 @@ void GameWindow::LoadSaveFileWindow()
     }
 
     ImGui::SameLine();
-    if (ImGui::Button("Refresh##LSF", ImVec2(75.0f, 0))) {
-        refresh_file_list(list_of_files);
+    if (ImGui::Button("Refresh", ImVec2(75.0f, 0))) {
+        refresh_list();
         reset_scroll_pos = true;
     }
 
@@ -586,7 +715,7 @@ void GameWindow::GameOptions()
 
     const ImGuiIO& io = ImGui::GetIO();
 //#ifdef _DEBUG
-    constexpr std::array<const char*, 7> game_difficulties = { "Random", "Easy As Pie", "Normal And Average", "Insane Enjoyer", "Diabolical Chad", "Open A File", "Load A Save File"};
+    constexpr std::array<const char*, 7> game_difficulties = { "Random", "Easy As Pie", "Normal And Average", "Insane Enjoyer", "Diabolical Chad", "Load A Sudoku Puzzle", "Load A Save File"};
 //#else
     //constexpr std::array<const char*, 5> game_difficulties = { "Random", "Easy As Pie", "Normal And Average", "Insane Enjoyer", "Diabolical Chad" };
 //#endif // _DEBUG
@@ -609,11 +738,25 @@ void GameWindow::GameOptions()
     if (ImGui::Button("New Game", ImVec2(80.0f, 0.0f))) {
         if (GameDifficulty == 5)
             OpenFileWindow = true;
-        else if (GameDifficulty == 6)
+        else if (GameDifficulty == 6) {
             OpenLoadSaveFileWindow = true;
-        else
-            CreateNewGame(GameDifficulty);
+            LoadAFile = true;
+        }
+        else {
+            using NewGameFromDifficulty = bool(GameWindow::*)(int);
+            NewGameFuture = std::async(std::launch::async, static_cast<NewGameFromDifficulty>(&GameWindow::CreateNewGame), this, GameDifficulty);
+            NewGameLoading.StartLoading(ImVec2(120.0f, 120.0f));
+        }
     }
+
+    static bool not_done = false;
+    if (NewGameFuture.valid()) {
+        not_done = NewGameFuture.wait_for(std::chrono::microseconds(1)) != std::future_status::ready;
+        if (!not_done)
+            NewGameFuture.get();
+    }
+    NewGameLoading.RenderLoading(not_done, 40.0f, 0.0f, 5.0f);
+
 
     static const std::string difficulty_help =
         "Random - Generates a puzzle of random difficulty puzzle.\n\n"
@@ -745,11 +888,8 @@ void GameWindow::GameOptions()
     }
 #endif
     if (ImGui::Button("Save Progress##GOW", ImVec2(ImGui::GetContentRegionAvail().x / 2.0f, 0.0f))) {
-        if (SaveProgress()) {
-            ImGui::OpenPopup("Progress Successfully Saved!##GOW");
-            ImGui::SetNextWindowSize(ImVec2(210.0f, 115.0f), ImGuiCond_Appearing);
-            ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-        }
+        OpenLoadSaveFileWindow = true;
+        LoadAFile = false;
     }
     if (ImGui::IsItemHovered()) {
         ImGui::BeginTooltip();
@@ -758,24 +898,49 @@ void GameWindow::GameOptions()
         ImGui::PopTextWrapPos();
         ImGui::EndTooltip();
     }
-    if (ImGui::BeginPopupModal("Progress Successfully Saved!##GOW", nullptr, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize)) {
-        CenterText("Progress successfully saved!");
-        CenterText("File Name:");
-        CenterText(std::string_view(SaveFilePath.begin() + 11, SaveFilePath.end()));
-
-        ImGui::SetCursorPosX((ImGui::GetWindowSize().x - 60.0f) * 0.5f);
-        if (ImGui::Button("Close", ImVec2(60.0f, 0)))
-            ImGui::CloseCurrentPopup();
-
-        ImGui::EndPopup();
-    }
     ImGui::EndDisabled();
 
-    ImGui::BeginDisabled(SudokuFileSaved); {
+    {
+        static std::string filepath;
+        ImGui::BeginDisabled(SudokuFileSaved);
         ImGui::SameLine();
         if (ImGui::Button("Save Puzzle##GOW", ImVec2(ImGui::GetContentRegionAvail().x, 0.0f))) {
-            if (sdq::utils::CreateSudokuFile(SudokuContext, "sudoku boards"))
+            static std::string puzzle_filename;
+            constexpr const char* folder_name = "sudoku boards";
+            constexpr const char* file_extension = ".txt";
+            SudokuDifficulty difficulty = SudokuContext.GetBoardDifficulty();
+            switch (difficulty)
+            {
+            case SudokuDifficulty_Easy:       puzzle_filename = "easy";       break;
+            case SudokuDifficulty_Normal:     puzzle_filename = "normal";     break;
+            case SudokuDifficulty_Insane:     puzzle_filename = "insane";     break;
+            case SudokuDifficulty_Diabolical: puzzle_filename = "diabolical"; break;
+            default:                          puzzle_filename = "random";     break;
+            }
+
+            if (!std::filesystem::exists(folder_name))
+                std::filesystem::create_directory(folder_name);
+            else if (!std::filesystem::is_directory(folder_name)) {
+                std::filesystem::remove(folder_name);
+                std::filesystem::create_directory(folder_name);
+            }
+
+            int file_number = 1;
+            do {
+                filepath.clear();
+                filepath += folder_name;
+                filepath += "\\";
+                filepath += puzzle_filename;
+                filepath += std::to_string(file_number++);
+                filepath += file_extension;
+            } while (std::filesystem::exists(filepath));
+
+            if (sdq::utils::CreateSudokuFile(*SudokuContext.GetPuzzleBoard(), filepath.c_str())) {
                 SudokuFileSaved = true;
+                ImGui::OpenPopup("Puzzle Successfully Saved##GOW");
+                ImGui::SetNextWindowSize(ImVec2(400.0f, 100.0f), ImGuiCond_Appearing);
+                ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+            }
         }
         if (ImGui::IsItemHovered()) {
             ImGui::BeginTooltip();
@@ -785,7 +950,20 @@ void GameWindow::GameOptions()
             ImGui::PopTextWrapPos();
             ImGui::EndTooltip();
         }
-    } ImGui::EndDisabled();
+        ImGui::EndDisabled();
+
+        if (ImGui::BeginPopupModal("Puzzle Successfully Saved##GOW", nullptr, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize)) {
+            CenterText("Puzzle file successfully saved!");
+            CenterText("Saved as:");
+            CenterText(std::string_view(filepath.begin() + 14, filepath.end()));
+
+            ImGui::SetCursorPosX((ImGui::GetWindowSize().x - 50.0f) * 0.50f);
+            if (ImGui::Button("Close", ImVec2(50.0f, 0)))
+                ImGui::CloseCurrentPopup();
+
+            ImGui::EndPopup();
+        }
+    }
 
     const float bottom_pos = ImGui::GetWindowSize().y - ImGui::GetTextLineHeightWithSpacing();
     ImGui::SetCursorPosY(bottom_pos);
@@ -805,6 +983,7 @@ bool GameWindow::IsWindowClosed()
 
 bool GameWindow::CreateNewGame(SudokuDifficulty difficulty)
 {
+    std::lock_guard func_guard(NewGameMutex);
     if (!SudokuContext.CreateSudoku(difficulty))
         return false;
 
@@ -814,7 +993,6 @@ bool GameWindow::CreateNewGame(SudokuDifficulty difficulty)
     CurrentlyOpenFile = "None";
     this->SetShowSolution();
     this->SetSudokuTilesForNewGame();
-    CreateSaveFilePath();
 
     return true;
 }
@@ -834,7 +1012,6 @@ bool GameWindow::CreateNewGame(const std::string& filepath)
     CurrentlyOpenFile = std::string_view(filepath.begin() + 14, filepath.end());
     this->SetShowSolution();
     this->SetSudokuTilesForNewGame();
-    CreateSaveFilePath();
 
     return true;
 }
@@ -892,9 +1069,9 @@ void GameWindow::RecheckTiles()
             SudokuGameTiles[row][col].RecheckError(SudokuContext, row, col);
 }
 
-bool GameWindow::SaveProgress()
+bool GameWindow::SaveProgress(const std::string& filepath)
 {
-    return sdq::utils::SaveSudokuProgress(SudokuContext, SaveFilePath.c_str());
+    return sdq::utils::SaveSudokuProgress(SudokuContext, filepath.data());
 }
 
 void GameWindow::Update()
@@ -921,51 +1098,15 @@ void GameWindow::Update()
     }
 }
 
-void GameWindow::CreateSaveFilePath()
+bool GameWindow::LoadSaveFile(const std::string& filepath)
 {
-    constexpr const char* folder_name = "save files";
-    if (!std::filesystem::exists(folder_name))
-        std::filesystem::create_directory(folder_name);
-    else if (!std::filesystem::is_directory(folder_name)) {
-        std::filesystem::remove(folder_name);
-        std::filesystem::create_directory(folder_name);
-    }
-
-    int file_number = 1;
-    constexpr const char* file_extension = ".bin";
-    static std::string file_name;
-
-    switch (SudokuContext.GetBoardDifficulty())
-    {
-    case SudokuDifficulty_Easy:       file_name = "easy_save";       break;
-    case SudokuDifficulty_Normal:     file_name = "normal_save";     break;
-    case SudokuDifficulty_Insane:     file_name = "insane_save";     break;
-    case SudokuDifficulty_Diabolical: file_name = "diabolical_save"; break;
-    default:                          file_name = "undefined_save";  break;
-    }
-
-    static std::string file_path;
-    do {
-        file_path.clear();
-        file_path += folder_name;
-        file_path += "\\";
-        file_path += file_name;
-        file_path += std::to_string(file_number++);
-        file_path += file_extension;
-    } while (std::filesystem::exists(file_path));
-
-    SaveFilePath = std::move(file_path);
-}
-
-bool GameWindow::LoadSaveFile()
-{
-    if(!sdq::utils::LoadSudokuProgress(SudokuContext, SaveFilePath.c_str()))
+    if(!sdq::utils::LoadSudokuProgress(SudokuContext, filepath.data()))
         return false;
     
     this->StopOngoingGame();
     GameStart         = true;
     SudokuFileSaved   = false;
-    CurrentlyOpenFile = std::string_view(SaveFilePath.begin() + 11, SaveFilePath.end());
+    CurrentlyOpenFile = std::string_view(filepath.begin() + 11, filepath.end());
     this->SetShowSolution();
     this->SetSudokuTileFromSaveFile();
     this->RecheckTiles();

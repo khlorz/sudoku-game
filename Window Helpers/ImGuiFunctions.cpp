@@ -34,7 +34,7 @@ void ImGuide::SetTheme(ImGuiThemes theme)
 {
 	switch (theme)
 	{
-	case     ImGuiThemes_Dark:  ImGui::StyleColorsDark();      break;
+	case     ImGuiThemes_Dark:  ImGui::StyleColorsNewDark();   break;
 	case     ImGuiThemes_Light: ImGui::StyleColorsClassic();   break;
 	default: break;
 	}
