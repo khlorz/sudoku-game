@@ -8,47 +8,56 @@
 #include <filesystem>
 #include <ctime>
 
+enum TileState_
+{
+	TileState_Normal               = 1,
+	TileState_Solution             = 2,
+	TileState_Pencilmark           = 4,
+	TileState_NormalStillPencimark = 8
+};
+using TileState = int;
+
 struct SudokuTile
 {
 private:
 	int  TileID;                        // Unique ID / number of the object
-	int  TileNumber;                    // The current number of the sudoku tile
-	int  SolutionNumber;                // The solution number of the sudoku tile
-	bool ShowAsSolution;                // A bool to show the solution number instead of the current number
-	bool PuzzleTile;                    // The tile that can't be changed or is the puzzle number
-	bool ErrorTile;                     // A bool to show if the tile is an error (has duplicate number in the row or column or cell)
 	bool Initialized;                   // Initialized flag so the unique id number can't be changed
 	char ButtonLabel[32];
 	char ContextPopUpLabel[32];
 	char InputIntLabel[32];
+
+	int                   InputTileNumber;
+	const int*            TileNumber;
+	const int*            SolutionNumber;
+	const std::bitset<9>* Pencilmark;
+
+	bool ShowAsPencilmark;
+	bool ShowAsSolution;                // A bool to show the solution number instead of the current number
+	bool PuzzleTile;                    // The tile that can't be changed or is the puzzle number
+	bool ErrorTile;                     // A bool to show if the tile is an error (has duplicate number in the row or column or cell)
+
 	static constexpr size_t CharBufferSize = 32;
 	static constexpr ImVec2 ButtonSize = ImVec2(48.50f, 48.50f);
 
 public:
 	SudokuTile();
-	SudokuTile(int item_num);
+	SudokuTile(const sdq::BoardTile& tile, const sdq::BoardTile& solution_tile);
 	// Initializes the tile id and tile number
 	// Should only be used once!
-	bool InitializeTile(int item_num);
+	bool InitializeTile(const sdq::BoardTile& puzzle_tile, const sdq::BoardTile& solution_tile);
 	// Sets the number of the tile
-	void SetTileNumber(uint16_t t_number);
+	void UpdateTileNumber(TileState tile_state);
 	// Sets the tile as a puzzle number
 	void SetTilePuzzleNumber(uint16_t t_number, uint16_t solution_number, bool is_puzzle);
-	// Sets the tile to be shown as a solution number
-	void SetAsSolutionTile(bool enable);
-	// Sets the tile to be shown with pencilmarks
-	void SetAsPencilmarkTile(bool enable);
-	// Resets the tile
-	void ResetTile();
 	//
 	bool IsPuzzleTile();
 	//
 	bool IsTileFilled();
 	//
-	void RecheckError(sdq::GameContext& sudoku_context, uint16_t row, uint16_t col);
+	void RecheckError(sdq::Instance& sudoku_context, uint16_t row, uint16_t col);
 	// Renders the tile button and it's popup context
 	// Returns false if the input is not valid, otherwise true
-	bool RenderButton(sdq::GameContext& sudoku_context, uint16_t row, uint16_t col, bool error_override);
+	bool RenderButton(sdq::Instance& sudoku_context, uint16_t row, uint16_t col, bool error_override);
 };
 
 template<size_t S>
@@ -91,17 +100,20 @@ private:
 	bool             Initialized;
 	bool             GameStart;
 	bool             WindowClose;
-	bool             ShouldShowSolution;
-	bool             ShouldAlwaysShowError;
+	bool             ShowSolution;
+	bool             ShowError;
 	bool             CheckGameState;
 	bool             OpenGameEndWindow;
-	bool             OpenFileWindow;
+	bool             OpenLoadSudokuWindow;
 	bool             OpenLoadSaveFileWindow;
+	bool             ShowPencilmarks;
+	bool             ShowLoadingScreen;
+	bool             StartLoadingScreen;
 	bool             SudokuFileSaved;
 	bool             LoadAFile;
 	TimeObj          TimeElapsed;
 	TimeObj          ShowSolutionTotalTime;
-	sdq::GameContext SudokuContext;
+	sdq::Instance SudokuContext;
 	SudokuTiles<9>   SudokuGameTiles;
 	SudokuDifficulty GameDifficulty;
 	std::string      CurrentlyOpenFile;
@@ -109,7 +121,7 @@ private:
 	mutable std::mutex     NewGameMutex;
 	std::future<bool>      NewGameFuture;
 	ImFunks::LoadingScreen NewGameLoading;
-
+	std::optional<bool>    NewGameResult;
 public:
 	GameWindow();
 
@@ -117,21 +129,37 @@ public:
 	bool IsWindowClosed();
 
 private:
-	void FileWindow();
-	void RecheckTiles();
+	// Windows
+	void GameEndWindow();
+	bool GameMainWindow();
+	void LoadSudokuFileWindow();
+	void LoadSaveFileWindow();
 	void GameOptions();
+	void MainMenuBar();
+
+	// Process Functions
 	bool CreateNewGame(const std::string& filepath);
 	bool CreateNewGame(SudokuDifficulty difficulty);
 	bool LoadSaveFile(const std::string& filepath);
 	bool SaveProgress(const std::string& filepath);
 	void StopOngoingGame();
-	void MainMenuBar();
 	void SetSudokuTilesForNewGame();
-	void GameEndWindow();
-	bool GameMainWindow();
 	void RenderSudokuBoard();
 	void SetShowSolution();
 	void Update();
-	void LoadSaveFileWindow();
+	void RecheckTiles();
 	void SetSudokuTileFromSaveFile();
+	void PencilmarkOptions();
+	void UndoRedoOptions();
+	void TileClearingOptions();
+	void ErrorAndSolutionOptions();
+	void SaveProgressOption();
+	void SavePuzzleOption();
+	void NewGameOption();
+
+	// Loading Screen Functions
+	void RenderNewGameLoadingScreen();
+	void StartNewGameLoadingScreen();
+	void CheckNewGameProgress();
 };
+

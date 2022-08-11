@@ -66,7 +66,7 @@ LoadingScreen::LoadingScreen(const char* w_label, const char* s_label) noexcept 
 	WindowLabel(w_label), SpinnerLabel(s_label)
 {}
 
-void LoadingScreen::StartLoading(const ImVec2& w_sz, const ImVec2& w_pos)
+void LoadingScreen::StartNewGameLoadingScreen(const ImVec2& w_sz, const ImVec2& w_pos)
 {
 	ImGui::OpenPopup(WindowLabel);
 	ImGui::SetNextWindowSize(w_sz, ImGuiCond_Always);

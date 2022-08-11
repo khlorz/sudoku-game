@@ -66,10 +66,8 @@ private:
 	const char* SpinnerLabel;
 public:
 	LoadingScreen(const char* w_label, const char* s_label) noexcept;
-	LoadingScreen(const LoadingScreen& other) noexcept = delete;
-	LoadingScreen& operator = (const LoadingScreen& other) noexcept = delete;
 
-	void StartLoading(const ImVec2& w_sz, const ImVec2& w_pos = ImVec2(-1.0f, -1.0f));
+	void StartNewGameLoadingScreen(const ImVec2& w_sz, const ImVec2& w_pos = ImVec2(-1.0f, -1.0f));
 	void RenderLoading(bool is_open, float radius, float thickness = 0.0f, float speed = 3.0f, ImU32 col = 0xffffffff);
 };
 
