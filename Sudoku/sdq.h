@@ -8,6 +8,10 @@
 #include <cassert>
 #include <random>
 #include <chrono>
+#include "boost/archive/binary_iarchive.hpp"
+#include "boost/archive/binary_oarchive.hpp"
+#include "boost/serialization/bitset.hpp"
+#include "boost/serialization/split_member.hpp"
 
 using SolveMethod         = int;
 using SolveStartWith      = int;
@@ -103,7 +107,9 @@ public:
     void            SetTileNumber(int bit_number) noexcept;
     void            ResetTileNumber() noexcept;
     void            InitializeTileOccurences(BoardOccurences& board_occurences) noexcept;
-    void            UpdatePencilMarks();
+    void            RemovePencilmarks();
+    void            ReapplyPencilmarks();
+    void            ResetPencilmarks();
     bool            IsTileFilled() const noexcept;
     std::bitset<9>  GetTileOccurences() noexcept;
 
@@ -144,7 +150,9 @@ struct GameBoard
     bool             IsCandidatePresentInTheSameCell(int cell, int bit_number, const std::vector<BoardTile*> exempted_tiles) noexcept;
     bool             IsCandidatePresentInTheSameLine(int line_index, int bit_number, int row_or_column, const std::vector<BoardTile*> exempted_tiles) noexcept;
 
-    void  UpdateAllPencilMarks() noexcept;
+    void  UpdateRemovePencilMarks() noexcept;
+    void  UpdateReapplyPencilMarks() noexcept;
+    void  ResetAllPencilMarks() noexcept;
     bool  UpdateRowPencilMarks(int row, int bit_number, const std::vector<int>& exempted_cells) noexcept;
     bool  UpdateRowPencilMarks(int row, int bit_number, const std::vector<BoardTile*>& exempted_tiles) noexcept;
     bool  UpdateColumnPencilMarks(int col, int bit_number, const std::vector<int>& exempted_cells) noexcept;
@@ -158,8 +166,56 @@ private:
     bool CreateBoardOccurences(const std::array<std::array<int, 9>, 9>& board) noexcept;
 };
 
-// Class for maintaining and holding sudoku game context
-class GameContext
+class TurnLog
+{
+public:
+    struct TurnTile
+    {
+        int Row;
+        int Column;
+        int PreviousNumber;
+        int NextNumber;
+        std::bitset<9> PreviousPencilmark;
+        std::bitset<9> NextPencilmark;
+
+        TurnTile() noexcept 
+            : Row(0), Column(0), PreviousNumber(0), NextNumber(0), PreviousPencilmark(0), NextPencilmark(0) {};
+        TurnTile(int _row, int _col, int prev_num, int next_num, const std::bitset<9>& prev_pm, const std::bitset<9>& next_pm) noexcept 
+            : Row(_row), Column(_col), PreviousNumber(prev_num), NextNumber(next_num), PreviousPencilmark(prev_pm), NextPencilmark(next_pm) {}
+    };
+private:
+    std::vector<TurnTile> TilesUsed;
+    size_t UndoPosition;
+public:
+    TurnLog() noexcept;
+    void Add(int _row, int _col, int prev_num, int next_num, const std::bitset<9>& prev_pm = 0, const std::bitset<9>& next_pm = 0) noexcept;
+    void Undo() noexcept;
+    void Redo() noexcept;
+    void Reset() noexcept;
+    bool CanUndo() const noexcept;
+    bool CanRedo() const noexcept;
+    const TurnTile* GetUndoTile() const noexcept;
+    const TurnTile* GetRedoTile() const noexcept;
+};
+
+class Time
+{
+private:
+    std::chrono::steady_clock::time_point              StartingTime;
+    std::chrono::steady_clock::time_point              EndTime;
+    std::vector<std::chrono::steady_clock::time_point> PausesPoint;
+
+public:
+    Time() = default;
+    void Reset();
+    void Start();
+    void End();
+    void Pause();
+    std::optional<std::tm> GetTimeDuration();
+};
+
+// Class for maintaining and holding sudoku game instance
+class Instance
 {
 private:
     SudokuDifficulty   GameDifficulty;    // Stores the current game difficulty
@@ -168,50 +224,52 @@ private:
     std::mt19937_64    GameRNG;           // Sudoku's Random Number Generator for generating the puzzle
     GameBoard          SolutionBoard;     // Stores the solution of the sudoku board
     GameBoard          PuzzleBoard;       // Stores the puzzle of the sudoku board
+    TurnLog            GameTurnLogs;
 
 public:
-    GameContext();
+    Instance();
 
     // Initialized the game with a pre-made sudoku board
     bool CreateSudoku(const std::array<std::array<int, 9>, 9>& board) noexcept;
     // Initialized the game with a random sudoku board
     bool CreateSudoku(SudokuDifficulty game_difficulty) noexcept;
     // Initialize the game with a save progress
-    bool CreateSudoku(const std::array<std::array<int, 9>, 9>& incomplete_board, const std::vector<std::pair<int, int>>& puzzle_tile_pos, const std::array<std::array<int, 9>, 9>& solution_board, SudokuDifficulty difficulty) noexcept;
+    bool LoadSudokuSave(const char* filepath) noexcept;
+    bool SaveCurrentProgress(const char* filepath) noexcept;
     // Checks if the current puzzle is already finished
     bool CheckPuzzleState() const noexcept;
-    ////
-    //bool LoadSudokuSave(const char* filepath) noexcept;
-    ////
-    //bool SaveSudokuProgress(const char* filepath) noexcept;
 
     // Getters
     const GameBoard*        GetPuzzleBoard() const noexcept;
     const GameBoard*        GetSolutionBoard() const noexcept;
-    const SudokuDifficulty& GetBoardDifficulty() const noexcept;
+    SudokuDifficulty        GetBoardDifficulty() const noexcept;
+    const TurnLog*          GetTurnLogs() const noexcept;
 
     // Setters
     bool SetTile(int row, int col, int number) noexcept;
+    bool ResetTile(int row, int col) noexcept;
+    void RemovePencilmark(int row, int col, int number) noexcept;
+    void AddPencilmark(int row, int col, int number) noexcept;
+    void ResetAllPencilmarks() noexcept;
+    void UpdateAllPencilmarks() noexcept;
     bool IsValidTile(int row, int col) noexcept;
+    void UndoTurn() noexcept;
+    void RedoTurn() noexcept;
+
 
 private:
-    // Create a sudoku board
-    bool CreateSudoku() noexcept;
-    // Clear the sudoku board
     void ClearAllBoards() noexcept;
-    // Fill the board with random numbers (still abides the sudoku rules)
     bool CreateCompleteBoard() noexcept;
-    // Make a puzzle out of the created sudoku board
     bool GeneratePuzzle() noexcept;
-    // Initialize the important parameters for creating a sudoku board
     void InitializeGameParameters(SudokuDifficulty game_difficulty) noexcept;
 
-// DEBUG FUNCTIONS
-#ifdef _DEBUG
-public:
-    void FillPuzzleBoard();
-#endif
-
+    // Serialization
+    friend class boost::serialization::access;
+    template<class Archive>
+    void save(Archive& archive, const uint32_t version) const;
+    template<class Archive>
+    void load(Archive& archive, const uint32_t version);
+    BOOST_SERIALIZATION_SPLIT_MEMBER();
 };
 
 namespace helpers
@@ -283,12 +341,6 @@ std::optional<std::array<std::array<int, 9>, 9>>
 OpenSudokuFile(const char* filename) noexcept;
 bool
 CreateSudokuFile(const GameBoard& sudoku_board, const char* filepath) noexcept;
-bool
-SaveSudokuProgress(const GameContext& sudoku_context, const char* filepath) noexcept;
-bool
-LoadSudokuProgress(GameContext& sudoku_context, const char* filepath) noexcept;
-SudokuDifficulty
-LoadDifficultyFromSaveFile(const char* filepath) noexcept;
 
 }
 

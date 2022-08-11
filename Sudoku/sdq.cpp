@@ -1,8 +1,6 @@
 #include "sdq.h"
 #include <fstream>
 #include <filesystem>
-#include "boost/archive/binary_iarchive.hpp"
-#include "boost/archive/binary_oarchive.hpp"
 
 // Functions for querying the sudoku board rows/columns/cells
 namespace sdq::helpers
@@ -219,8 +217,19 @@ void BoardTile::InitializeTileOccurences(BoardOccurences& board_occurences) noex
     CellOccurence = &board_occurences.GetCellOccurences(Row, Column);
 }
 
-void BoardTile::UpdatePencilMarks()
+void BoardTile::RemovePencilmarks()
 {
+    Pencilmarks |= *RowOccurence | *ColOccurence | *CellOccurence;
+}
+
+void BoardTile::ReapplyPencilmarks()
+{
+    Pencilmarks &= *RowOccurence | *ColOccurence | *CellOccurence;
+}
+
+void BoardTile::ResetPencilmarks()
+{
+    Pencilmarks.reset();
     Pencilmarks |= *RowOccurence | *ColOccurence | *CellOccurence;
 }
 
@@ -413,7 +422,7 @@ void GameBoard::UpdateBoardOccurences() noexcept
 
     for (int row = 0; row < 9; ++row)
         for (int col = 0; col < 9; ++col)
-            if (!BoardTiles[row][col].IsTileFilled())
+            if (BoardTiles[row][col].IsTileFilled())
                 BoardOccurences.SetCellNumber(row, col, BoardTiles[row][col].TileNumber - 1);
 }
 
@@ -422,18 +431,26 @@ void GameBoard::UpdateBoardOccurences(int row, int col) noexcept
     int cell = sdq::helpers::GetCellBlock(row, col);
     auto [min_row, max_row, min_col, max_col] = sdq::helpers::GetMinMaxRowColumnFromCell(cell);
 
-    for (auto& puzzle_tile : PuzzleTiles) {
-        if (!puzzle_tile->IsTileFilled())
+    for (int cell_row = min_row; cell_row < max_row; ++cell_row)
+        for (int cell_col = min_col; cell_col < max_col; ++cell_col)
+            if (BoardTiles[cell_row][cell_col].IsTileFilled())
+                BoardOccurences.SetCellNumber(cell_row, cell_col, BoardTiles[cell_row][cell_col].TileNumber - 1);
+
+
+    for (int new_row = 0; new_row < 9; ++new_row) {
+        if (new_row >= min_row && new_row < max_row)
             continue;
+        if (!BoardTiles[new_row][col].IsTileFilled())
+            continue;
+        BoardOccurences.SetCellNumber(new_row, col, BoardTiles[new_row][col].TileNumber - 1);
+    }
 
-        if (puzzle_tile->Column >= min_col && puzzle_tile->Column < max_col && puzzle_tile->Row >= min_row && puzzle_tile->Row < max_row)
-            BoardOccurences.SetCellNumber(puzzle_tile->Row, puzzle_tile->Column, puzzle_tile->TileNumber - 1);
-
-        else if(puzzle_tile->Column == col && puzzle_tile->Row != row)
-            BoardOccurences.SetCellNumber(puzzle_tile->Row, puzzle_tile->Column, puzzle_tile->TileNumber - 1);
-
-        else if(puzzle_tile->Row == row && puzzle_tile->Column != col)
-            BoardOccurences.SetCellNumber(puzzle_tile->Row, puzzle_tile->Column, puzzle_tile->TileNumber - 1);
+    for (int new_col = 0; new_col < 9; ++new_col) {
+        if (new_col >= min_col && new_col < max_col)
+            continue;
+        if (!BoardTiles[row][new_col].IsTileFilled())
+            continue;
+        BoardOccurences.SetCellNumber(row, new_col, BoardTiles[row][new_col].TileNumber - 1);
     }
 }
 
@@ -493,12 +510,34 @@ BoardTile* GameBoard::FindLowestMRV() noexcept
 // SudokuBoard Pencilmark Functions
 //------------------------------------------------
 
-void GameBoard::UpdateAllPencilMarks() noexcept
+void GameBoard::UpdateRemovePencilMarks() noexcept
 {
     for (auto& row_tiles : BoardTiles) {
         for (auto& tile : row_tiles) {
             if (!tile.IsTileFilled()) {
-                tile.UpdatePencilMarks();
+                tile.RemovePencilmarks();
+            }
+        }
+    }
+}
+
+void GameBoard::UpdateReapplyPencilMarks() noexcept
+{
+    for (auto& row_tiles : BoardTiles) {
+        for (auto& tile : row_tiles) {
+            if (!tile.IsTileFilled()) {
+                tile.ReapplyPencilmarks();
+            }
+        }
+    }
+}
+
+void GameBoard::ResetAllPencilMarks() noexcept
+{
+    for (auto& row_tiles : BoardTiles) {
+        for (auto& tile : row_tiles) {
+            if (!tile.IsTileFilled()) {
+                tile.ResetPencilmarks();
             }
         }
     }
@@ -706,19 +745,83 @@ bool GameBoard::IsCandidatePresentInTheSameLine(int line_index, int bit_number, 
     return false;
 }
 
+//-----------------------------------------------------------------------------------------------------------------------------------------------
+// TurnLog CLASS
+//-----------------------------------------------------------------------------------------------------------------------------------------------
+
+TurnLog::TurnLog() noexcept :
+    UndoPosition(0)
+{
+    TilesUsed.reserve(100);
+}
+
+void TurnLog::Add(int _row, int _col, int prev_num, int next_num, const std::bitset<9>& prev_pm, const std::bitset<9>& next_pm) noexcept
+{
+    if (UndoPosition < TilesUsed.size())
+        TilesUsed.resize(UndoPosition);
+
+    TilesUsed.push_back(TurnTile(_row, _col, prev_num, next_num, prev_pm, next_pm));
+    UndoPosition = TilesUsed.size();
+}
+
+void TurnLog::Undo() noexcept
+{
+    if (TilesUsed.empty() || UndoPosition == 0)
+        return;
+
+    UndoPosition--;
+}
+
+void TurnLog::Redo() noexcept
+{
+    if (UndoPosition == TilesUsed.size())
+        return;
+
+    UndoPosition++;
+}
+
+void TurnLog::Reset() noexcept
+{
+    TilesUsed.clear();
+    UndoPosition = 0;
+}
+
+const TurnLog::TurnTile* TurnLog::GetUndoTile() const noexcept
+{
+    return TilesUsed.empty() || UndoPosition == 0 ? nullptr : &TilesUsed[UndoPosition - 1];
+}
+
+const TurnLog::TurnTile* TurnLog::GetRedoTile() const noexcept
+{
+    return UndoPosition == TilesUsed.size() ? nullptr : &TilesUsed[UndoPosition];
+}
+
+bool TurnLog::CanUndo() const noexcept
+{
+    return !TilesUsed.empty() && UndoPosition != 0;
+}
+
+bool TurnLog::CanRedo() const noexcept
+{
+    return UndoPosition != TilesUsed.size();
+}
+
+//-----------------------------------------------------------------------------------------------------------------------------------------------
+// Time CLASS
+//-----------------------------------------------------------------------------------------------------------------------------------------------
 
 
 //--------------------------------------------------------------------------------------------------------------------------------
 // GameContext CLASS
 //--------------------------------------------------------------------------------------------------------------------------------
 
-GameContext::GameContext() : GameDifficulty(2), RandomDifficulty(0)
+Instance::Instance() : GameDifficulty(2), RandomDifficulty(0)
 {
     auto seed = std::chrono::steady_clock::now().time_since_epoch().count();
     GameRNG.seed(seed);
 }
 
-bool GameContext::CreateSudoku(const std::array<std::array<int, 9>, 9>& board) noexcept
+bool Instance::CreateSudoku(const std::array<std::array<int, 9>, 9>& board) noexcept
 {
     if (!SolutionBoard.CreateSudokuBoard(board))
         return false;
@@ -730,32 +833,56 @@ bool GameContext::CreateSudoku(const std::array<std::array<int, 9>, 9>& board) n
 
     GameDifficulty   = SudokuDifficulty_Random;
     RandomDifficulty = sdq::utils::CheckPuzzleDifficulty(PuzzleBoard);
+    GameTurnLogs.Reset();
 
     return true;
 }
 
-bool GameContext::CreateSudoku(const std::array<std::array<int, 9>, 9>& incomplete_board, const std::vector<std::pair<int, int>>& puzzle_tile_pos, const std::array<std::array<int, 9>, 9>& solution_board, SudokuDifficulty difficulty) noexcept
+bool Instance::LoadSudokuSave(const char* filepath) noexcept
 {
-    PuzzleBoard.CreateSudokuBoard(incomplete_board, false);
+    std::ifstream sudoku_save(filepath, std::ios::binary);
+    if (!sudoku_save.good())
+        return false;
 
-    for (auto& pos : puzzle_tile_pos)
-        PuzzleBoard.PuzzleTiles.push_back(&PuzzleBoard.BoardTiles[pos.first][pos.second]);
+    boost::archive::binary_iarchive iarchive(sudoku_save);
+    iarchive & *this;
 
-    SolutionBoard.CreateSudokuBoard(solution_board, false);
-  
-    GameDifficulty = SudokuDifficulty_Random;
-    RandomDifficulty = difficulty;
+    GameTurnLogs.Reset();
 
     return true;
 }
 
-bool GameContext::CreateSudoku(SudokuDifficulty game_difficulty) noexcept
+bool Instance::SaveCurrentProgress(const char* filepath) noexcept
+{
+    std::ofstream sudoku_save(filepath, std::ios::binary);
+    if (!sudoku_save.good())
+        return false;
+
+    boost::serialization::version<Instance>();
+    boost::archive::binary_oarchive oarchive(sudoku_save);
+    oarchive & *this;
+
+
+    return true;
+}
+
+bool Instance::CreateSudoku(SudokuDifficulty game_difficulty) noexcept
 {
     this->InitializeGameParameters(game_difficulty);  // Initialize important game parameters for creating a sudoku puzzle
-    return this->CreateSudoku();                      // Create sudoku puzzle
+    do {
+        if (!this->CreateCompleteBoard())
+            return false;
+
+        if (this->GeneratePuzzle())
+            break;
+    } while (true);
+
+    GameTurnLogs.Reset();
+
+    return true;
 }
 
-void GameContext::InitializeGameParameters(SudokuDifficulty game_difficulty) noexcept
+void Instance::InitializeGameParameters(SudokuDifficulty game_difficulty) noexcept
 {
     this->GameDifficulty = game_difficulty;
     switch (game_difficulty)
@@ -783,29 +910,12 @@ void GameContext::InitializeGameParameters(SudokuDifficulty game_difficulty) noe
     }
 }
 
-void GameContext::ClearAllBoards() noexcept
+void Instance::ClearAllBoards() noexcept
 {
     SolutionBoard.ClearSudokuBoard();
 }
 
-bool GameContext::CreateSudoku() noexcept
-{
-    do {
-        // Fill the grid with 27 numbers (three cells worth of numbers)
-        // This is essentially the making of the solution board
-        if (!this->CreateCompleteBoard())
-            return false;
-
-        // Start making the puzzle by removing certain numbers
-        // This is the making of the puzzle board
-        if (this->GeneratePuzzle())
-            break;
-    } while (true);
-
-    return true;
-}
-
-bool GameContext::CreateCompleteBoard() noexcept
+bool Instance::CreateCompleteBoard() noexcept
 {
     SolutionBoard.ClearSudokuBoard();
 
@@ -833,7 +943,7 @@ bool GameContext::CreateCompleteBoard() noexcept
     return true;
 }
 
-bool GameContext::GeneratePuzzle() noexcept
+bool Instance::GeneratePuzzle() noexcept
 {
     PuzzleBoard = SolutionBoard;
 
@@ -864,7 +974,7 @@ bool GameContext::GeneratePuzzle() noexcept
     // Create the neccesary puzzle tiles. Needed for solving the puzzle if someone wanted to, although there is already a solution
     PuzzleBoard.CreatePuzzleTiles();
     // Create the neccesary pencil marks of each tiles. Needed especially for most sudoku players
-    PuzzleBoard.UpdateAllPencilMarks();
+    PuzzleBoard.UpdateRemovePencilMarks();
 
     if (GameDifficulty == SudokuDifficulty_Random)
         RandomDifficulty = sdq::utils::CheckPuzzleDifficulty(PuzzleBoard);
@@ -874,59 +984,171 @@ bool GameContext::GeneratePuzzle() noexcept
     return true;
 }
 
+template<class Archive>
+void Instance::save(Archive& archive, const uint32_t version) const
+{
+    // Archive the difficulty
+    archive & (this->GameDifficulty == SudokuDifficulty_Random ? this->RandomDifficulty : this->GameDifficulty);
+
+    // Archive the solution board
+    for (auto& row_tile : this->SolutionBoard.BoardTiles)
+        for (auto& tile : row_tile)
+            archive & tile.TileNumber;
+
+    // Archive the puzzle board
+    for (auto& row_tile : this->PuzzleBoard.BoardTiles) {
+        for (auto& tile : row_tile) {
+            archive & tile.TileNumber;
+            archive & tile.Pencilmarks;
+        }
+    }
+
+    for (auto& puzzle_tile : this->PuzzleBoard.PuzzleTiles) {
+        archive & puzzle_tile->Row;
+        archive & puzzle_tile->Column;
+    }
+}
+
+template<class Archive>
+void Instance::load(Archive& archive, const uint32_t version)
+{
+    // Read the difficulty
+    this->GameDifficulty = SudokuDifficulty_Random;
+    archive & this->RandomDifficulty;
+
+    {   // Read the solution board archive
+        for (size_t row = 0; row < 9; ++row) {
+            for (size_t col = 0; col < 9; ++col) {
+                archive & this->SolutionBoard.GetTile(row, col).TileNumber;
+            }
+        }
+    }
+
+    {
+        std::array<std::bitset<9>, 81> pencilmarks;
+        std::array<std::array<int, 9>, 9> incomplete_puzzle_board;
+        for (size_t row = 0; row < 9; ++row) {
+            for (size_t col = 0; col < 9; ++col) {
+                archive & incomplete_puzzle_board[row][col];
+                archive & pencilmarks[(row * 9) + col];
+            }
+        }
+
+        this->PuzzleBoard.CreateSudokuBoard(incomplete_puzzle_board, false);
+        for (int row = 0; row < 9; ++row)
+            for (int col = 0; col < 9; ++col)
+                this->PuzzleBoard.GetTile(row, col).Pencilmarks = pencilmarks[(row * 9) + col];
+
+        int puzzle_row = 0;
+        int puzzle_col = 0;
+        while (true) {
+            try {
+                archive & puzzle_row;
+                archive & puzzle_col;
+            }
+            catch (const std::exception&) {
+                break;
+            }
+            this->PuzzleBoard.PuzzleTiles.push_back(&this->PuzzleBoard.GetTile(puzzle_row, puzzle_col));
+        }
+    }
+}
+
 //----------------------------------------------------------------------
 // Sudoku GETTERS
 //----------------------------------------------------------------------
 
-const GameBoard* GameContext::GetPuzzleBoard() const noexcept
+const GameBoard* Instance::GetPuzzleBoard() const noexcept
 {
     return &PuzzleBoard;
 }
 
-const SudokuDifficulty& GameContext::GetBoardDifficulty() const noexcept
+SudokuDifficulty Instance::GetBoardDifficulty() const noexcept
 {
     return GameDifficulty == SudokuDifficulty_Random ? RandomDifficulty : GameDifficulty;
 }
 
-const GameBoard* GameContext::GetSolutionBoard() const noexcept
+const GameBoard* Instance::GetSolutionBoard() const noexcept
 {
     return &SolutionBoard;
+}
+
+const TurnLog* Instance::GetTurnLogs() const noexcept
+{
+    return &GameTurnLogs;
 }
 
 //----------------------------------------------------------------------
 // Sudoku SETTERS
 //----------------------------------------------------------------------
 
-bool GameContext::SetTile(int row, int col, int number) noexcept
+bool Instance::SetTile(int row, int col, int number) noexcept
 {
     auto& input_tile = PuzzleBoard.GetTile(row, col);
 
     // In case the input 
-    if (number == PuzzleBoard.GetTile(row, col).TileNumber) {
-        return input_tile.TileNumber == SolutionBoard.GetTile(row, col).TileNumber;
-    }
+    if (number == input_tile.TileNumber)
+        return false;
+
+    GameTurnLogs.Add(input_tile.Row, input_tile.Column, input_tile.TileNumber, number, input_tile.Pencilmarks, input_tile.Pencilmarks);
 
     // Checks if the input number is valid. If not, still register but return false
     const auto& occurences = input_tile.GetTileOccurences();
     input_tile.SetTileNumber(number);
     
-    if(number == 0)
-        PuzzleBoard.UpdateBoardOccurences(row, col);
+    PuzzleBoard.UpdateBoardOccurences();
 
-    return number == 0 || !occurences[number - 1];
+    if (number != 0)
+        PuzzleBoard.UpdateRemovePencilMarks();
+    else
+        PuzzleBoard.UpdateReapplyPencilMarks();
+
+    return true;
 }
 
-bool GameContext::CheckPuzzleState() const noexcept
+bool Instance::ResetTile(int row, int col) noexcept
 {
-    if (!SolutionBoard.IsBoardCompleted()) {
+    return SetTile(row, col, 0);
+}
+
+void Instance::RemovePencilmark(int row, int col, int number) noexcept
+{
+    assert(number > 0 && number <= 9);
+    auto& tile = PuzzleBoard.GetTile(row, col);
+    auto previous_pm = tile.Pencilmarks;
+    tile.Pencilmarks.set(number - 1);
+    GameTurnLogs.Add(row, col, tile.TileNumber, tile.TileNumber, previous_pm, tile.Pencilmarks);
+}
+
+void Instance::AddPencilmark(int row, int col, int number) noexcept
+{
+    assert(number > 0 && number <= 9);
+    auto& tile = PuzzleBoard.GetTile(row, col);
+    auto previous_pm = tile.Pencilmarks;
+    tile.Pencilmarks.reset(number - 1);
+    GameTurnLogs.Add(row, col, tile.TileNumber, tile.TileNumber, previous_pm, tile.Pencilmarks);
+}
+
+void Instance::UpdateAllPencilmarks() noexcept
+{
+    PuzzleBoard.UpdateRemovePencilMarks();
+}
+
+void Instance::ResetAllPencilmarks() noexcept
+{
+    PuzzleBoard.ResetAllPencilMarks();
+}
+
+bool Instance::CheckPuzzleState() const noexcept
+{
+    if (!SolutionBoard.IsBoardCompleted())
         return false;
-    }
 
     // Checks if the solution board is the same as the puzzle board
     return SolutionBoard == PuzzleBoard;
 }
 
-bool GameContext::IsValidTile(int row, int col) noexcept
+bool Instance::IsValidTile(int row, int col) noexcept
 {
     if (!PuzzleBoard.GetTile(row, col).IsTileFilled())
         return true;
@@ -962,16 +1184,48 @@ bool GameContext::IsValidTile(int row, int col) noexcept
     return true;
 }
 
-//--------------------------------------------------------------------------------------------------------------------------------
-// DEBUG FUNCTIONS
-//--------------------------------------------------------------------------------------------------------------------------------
-
-#ifdef _DEBUG
-void GameContext::FillPuzzleBoard()
+void Instance::UndoTurn() noexcept
 {
-    PuzzleBoard = SolutionBoard;
+    auto previous_turn_tile = GameTurnLogs.GetUndoTile();
+    if (previous_turn_tile == nullptr)
+        return;
+
+    auto& input_tile = PuzzleBoard.GetTile(previous_turn_tile->Row, previous_turn_tile->Column);
+    if (input_tile.TileNumber != previous_turn_tile->PreviousNumber) {
+        input_tile.SetTileNumber(previous_turn_tile->PreviousNumber);
+        PuzzleBoard.UpdateBoardOccurences(input_tile.Row, input_tile.Column);
+        if (previous_turn_tile->PreviousNumber != 0)
+            PuzzleBoard.UpdateRemovePencilMarks();
+        else
+            PuzzleBoard.UpdateReapplyPencilMarks();
+    }
+
+    input_tile.Pencilmarks = previous_turn_tile->PreviousPencilmark;
+
+    GameTurnLogs.Undo();
 }
-#endif
+
+void Instance::RedoTurn() noexcept
+{
+    auto next_turn_tile = GameTurnLogs.GetRedoTile();
+    if (next_turn_tile == nullptr)
+        return;
+
+    auto& input_tile = PuzzleBoard.GetTile(next_turn_tile->Row, next_turn_tile->Column);
+
+    if (input_tile.TileNumber == next_turn_tile->NextNumber)
+        input_tile.Pencilmarks = next_turn_tile->NextPencilmark;
+    else {
+        input_tile.SetTileNumber(next_turn_tile->NextNumber);
+        PuzzleBoard.UpdateBoardOccurences(input_tile.Row, input_tile.Column);
+        if (next_turn_tile->NextNumber != 0)
+            PuzzleBoard.UpdateRemovePencilMarks();
+        else
+            PuzzleBoard.UpdateReapplyPencilMarks();
+    }
+
+    GameTurnLogs.Redo();
+}
 
 }
 
@@ -1084,7 +1338,7 @@ bool SolveHumanelyEX(GameBoard& sudoku_board, size_t& difficulty_score) noexcept
             if (sudoku_board.IsBoardCompleted()) {
                 return true;
             }
-            sudoku_board.UpdateAllPencilMarks();
+            sudoku_board.UpdateRemovePencilMarks();
             continue;
         }
 
@@ -1093,7 +1347,7 @@ bool SolveHumanelyEX(GameBoard& sudoku_board, size_t& difficulty_score) noexcept
             if (sudoku_board.IsBoardCompleted()) {
                 return true;
             }
-            sudoku_board.UpdateAllPencilMarks();
+            sudoku_board.UpdateRemovePencilMarks();
             continue;
         }
 
@@ -1205,26 +1459,6 @@ bool SolveHumanely(GameBoard& sudoku_board, size_t* difficulty_score) noexcept
 }
 
 }
-
-namespace boost::serialization
-{
-
-template<class Archive>
-void save(Archive& archive, const int& number, const uint32_t version)
-{
-    archive & number;
-}
-
-template<class Archive>
-void load(Archive& archive, int& number, const uint32_t version)
-{
-    archive& number;
-}
-
-}
-
-BOOST_SERIALIZATION_SPLIT_FREE(int);
-BOOST_CLASS_VERSION(int, 0);
 
 namespace sdq::utils
 {
@@ -1365,11 +1599,13 @@ SudokuDifficulty CheckPuzzleDifficulty(GameBoard& sudoku_board) noexcept
     size_t difficulty_score = 0;
     size_t blank_count = 0;
     const bool puzzle_completed = sdq::solvers::SolveHumanelyEX(sudoku_board, difficulty_score);
-    if(!puzzle_completed)
+    if (!puzzle_completed)
         blank_count = std::count_if(sudoku_board.PuzzleTiles.begin(), sudoku_board.PuzzleTiles.end(), [](const BoardTile* tile) { return !tile->IsTileFilled(); });
     for (auto& ptile : sudoku_board.PuzzleTiles)
         if (ptile->IsTileFilled())
             ptile->ResetTileNumber();
+    for (auto& ptile : sudoku_board.PuzzleTiles)
+        ptile->ResetPencilmarks();
 
     if (difficulty_score < 5000 && puzzle_completed)
         return SudokuDifficulty_Easy;
@@ -1436,106 +1672,6 @@ bool CreateSudokuFile(const GameBoard& sudoku_board, const char* filepath) noexc
 
     new_file.close();
     return true;
-}
-
-bool SaveSudokuProgress(const GameContext& sudoku_context, const char* filepath) noexcept
-{
-    std::fstream new_savefile(filepath, std::ios::in | std::ios::out | std::ios::trunc | std::ios::binary);
-    if (!new_savefile.good())
-        return false;
-
-    {
-        boost::archive::binary_oarchive out_savefile(new_savefile);
-        
-        out_savefile & sudoku_context.GetBoardDifficulty();
-
-        for (auto& row_tile : sudoku_context.GetSolutionBoard()->BoardTiles) {
-            for (auto& tile : row_tile)
-                out_savefile & tile.TileNumber;
-        }
-
-        for (auto& row_tile : sudoku_context.GetPuzzleBoard()->BoardTiles) {
-            for (auto& tile : row_tile)
-                out_savefile& tile.TileNumber;
-        }
-
-        for (auto& tile : sudoku_context.GetPuzzleBoard()->PuzzleTiles) {
-            out_savefile& tile->Row;
-            out_savefile& tile->Column;
-        }
-    }
-
-    new_savefile.close();
-    return true;
-}
-
-bool LoadSudokuProgress(GameContext& sudoku_context, const char* filepath) noexcept
-{
-    std::ifstream save_file(filepath, std::ios::in);
-    if (!save_file.good())
-        return false;
-
-
-    SudokuDifficulty difficulty = 0;
-    std::array<std::array<int, 9>, 9> solution_board;
-    std::array<std::array<int, 9>, 9> puzzle_board;
-    std::vector<std::pair<int, int>> puzzle_tiles;
-
-    try {
-        boost::archive::binary_iarchive input_savefile(save_file);
-        input_savefile & difficulty;
-
-        for (int row_iter = 0; row_iter < 9; ++row_iter) {
-            for (int col_iter = 0; col_iter < 9; ++col_iter) {
-                input_savefile& solution_board[row_iter][col_iter];
-            }
-        }
-
-        for (int row_iter = 0; row_iter < 9; ++row_iter) {
-            for (int col_iter = 0; col_iter < 9; ++col_iter) {
-                input_savefile& puzzle_board[row_iter][col_iter];
-            }
-        }
-
-        int row = 0, col = 0;
-        do {
-            try {
-                input_savefile& row;
-                input_savefile& col;
-            }
-            catch (const std::exception& e) {
-                break;
-            }
-            puzzle_tiles.push_back({ row, col });
-        } while (true);
-    }
-    catch (const std::exception&) {
-        return false;
-    }
-
-    sudoku_context.CreateSudoku(puzzle_board, puzzle_tiles, solution_board, difficulty);
-
-    save_file.close();
-    return true;
-}
-
-SudokuDifficulty LoadDifficultyFromSaveFile(const char* filepath) noexcept
-{
-    std::ifstream save_file(filepath, std::ios::in);
-    if (!save_file.good())
-        return 0;
-
-    SudokuDifficulty difficulty = 0;
-    try {
-        boost::archive::binary_iarchive input_savefile(save_file);
-        input_savefile & difficulty;
-    }
-    catch (const std::exception&) {
-        return 0;
-    }
-
-    save_file.close();
-    return difficulty;
 }
 
 }
