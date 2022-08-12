@@ -198,21 +198,21 @@ public:
     const TurnTile* GetRedoTile() const noexcept;
 };
 
-class Time
-{
-private:
-    std::chrono::steady_clock::time_point              StartingTime;
-    std::chrono::steady_clock::time_point              EndTime;
-    std::vector<std::chrono::steady_clock::time_point> PausesPoint;
-
-public:
-    Time() = default;
-    void Reset();
-    void Start();
-    void End();
-    void Pause();
-    std::optional<std::tm> GetTimeDuration();
-};
+//class Time
+//{
+//private:
+//    std::chrono::steady_clock::time_point              StartingTime;
+//    std::chrono::steady_clock::time_point              EndTime;
+//    std::vector<std::chrono::steady_clock::time_point> PausesPoint;
+//
+//public:
+//    Time() = default;
+//    void Reset();
+//    void Start();
+//    void End();
+//    void Pause();
+//    std::optional<std::tm> GetTimeDuration();
+//};
 
 // Class for maintaining and holding sudoku game instance
 class Instance
@@ -235,9 +235,12 @@ public:
     bool CreateSudoku(SudokuDifficulty game_difficulty) noexcept;
     // Initialize the game with a save progress
     bool LoadSudokuSave(const char* filepath) noexcept;
-    bool SaveCurrentProgress(const char* filepath) noexcept;
+    // Save the current progress of the puzzle
+    bool SaveCurrentProgress(const char* filepath) const noexcept;
     // Checks if the current puzzle is already finished
     bool CheckPuzzleState() const noexcept;
+    // Static Function! Load the difficulty of save files
+    static SudokuDifficulty LoadDifficultyFromSaveFile(const char* filepath) noexcept;
 
     // Getters
     const GameBoard*        GetPuzzleBoard() const noexcept;
@@ -248,28 +251,20 @@ public:
     // Setters
     bool SetTile(int row, int col, int number) noexcept;
     bool ResetTile(int row, int col) noexcept;
+    void ResetTurnLogs() noexcept;
     void RemovePencilmark(int row, int col, int number) noexcept;
     void AddPencilmark(int row, int col, int number) noexcept;
+    void ClearAllPencilmarks() noexcept;
     void ResetAllPencilmarks() noexcept;
-    void UpdateAllPencilmarks() noexcept;
     bool IsValidTile(int row, int col) noexcept;
     void UndoTurn() noexcept;
     void RedoTurn() noexcept;
-
 
 private:
     void ClearAllBoards() noexcept;
     bool CreateCompleteBoard() noexcept;
     bool GeneratePuzzle() noexcept;
     void InitializeGameParameters(SudokuDifficulty game_difficulty) noexcept;
-
-    // Serialization
-    friend class boost::serialization::access;
-    template<class Archive>
-    void save(Archive& archive, const uint32_t version) const;
-    template<class Archive>
-    void load(Archive& archive, const uint32_t version);
-    BOOST_SERIALIZATION_SPLIT_MEMBER();
 };
 
 namespace helpers
@@ -341,6 +336,12 @@ std::optional<std::array<std::array<int, 9>, 9>>
 OpenSudokuFile(const char* filename) noexcept;
 bool
 CreateSudokuFile(const GameBoard& sudoku_board, const char* filepath) noexcept;
+bool
+SaveSudokuProgress(const sdq::Instance& sudoku, const char* filepath) noexcept;
+bool
+LoadSudokuProgress(sdq::Instance& sudoku, const char* filepath) noexcept;
+SudokuDifficulty
+LoadDifficultyOfSavedProgress(const char* filepath) noexcept;
 
 }
 

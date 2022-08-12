@@ -845,25 +845,107 @@ bool Instance::LoadSudokuSave(const char* filepath) noexcept
         return false;
 
     boost::archive::binary_iarchive iarchive(sudoku_save);
-    iarchive & *this;
+    try {
+        this->GameDifficulty = SudokuDifficulty_Random;
+        iarchive & this->RandomDifficulty;
+
+        std::array<std::array<int, 9>, 9> solutionboard_numbers;
+        for (size_t row = 0; row < 9; ++row) {
+            for (size_t col = 0; col < 9; ++col) {
+                iarchive & solutionboard_numbers[row][col];
+                if (solutionboard_numbers[row][col] < 0 || solutionboard_numbers[row][col] > 9)
+                    throw;
+            }
+        }
+
+        this->SolutionBoard.CreateSudokuBoard(solutionboard_numbers, false);
+
+        std::array<std::array<int, 9>, 9> puzzleboard_numbers;
+        std::array<std::bitset<9>, 81>    puzzleboard_pencilmarks;
+        for (size_t row = 0; row < 9; ++row) {
+            for (size_t col = 0; col < 9; ++col) {
+                iarchive & puzzleboard_numbers[row][col];
+                iarchive & puzzleboard_pencilmarks[(row * 9) + col];
+
+                if (puzzleboard_numbers[row][col] < 0 || puzzleboard_numbers[row][col] > 9)
+                    throw;
+            }
+        }
+
+        this->PuzzleBoard.CreateSudokuBoard(puzzleboard_numbers, false);
+        for (size_t row = 0; row < 9; ++row)
+            for (size_t col = 0; col < 9; ++col)
+                this->PuzzleBoard.GetTile(row, col).Pencilmarks = puzzleboard_pencilmarks[(row * 9) + col];
+
+        int puzzle_row = 0;
+        int puzzle_col = 0;
+        while (true) {
+            try {
+                iarchive & puzzle_row;
+                iarchive & puzzle_col;
+                this->PuzzleBoard.PuzzleTiles.push_back(&this->PuzzleBoard.GetTile(puzzle_row, puzzle_col));
+            }
+            catch (const std::exception& e) {
+                break;
+            }
+        }
+    }
+    catch (const std::exception&) {
+        return false;
+    }
 
     GameTurnLogs.Reset();
 
     return true;
 }
 
-bool Instance::SaveCurrentProgress(const char* filepath) noexcept
+bool Instance::SaveCurrentProgress(const char* filepath) const noexcept
 {
-    std::ofstream sudoku_save(filepath, std::ios::binary);
-    if (!sudoku_save.good())
+    std::ofstream ofile(filepath, std::ios::binary);
+    if (!ofile.good())
         return false;
 
-    boost::serialization::version<Instance>();
-    boost::archive::binary_oarchive oarchive(sudoku_save);
-    oarchive & *this;
+    boost::archive::binary_oarchive archive(ofile);
+    // Archive the difficulty
+    archive& this->GetBoardDifficulty();
 
+    // Archive the solution board
+    for (auto& row_tile : this->SolutionBoard.BoardTiles)
+        for (auto& tile : row_tile)
+            archive& tile.TileNumber;
+
+    // Archive the puzzle board
+    for (auto& row_tile : this->PuzzleBoard.BoardTiles) {
+        for (auto& tile : row_tile) {
+            archive& tile.TileNumber;
+            archive& tile.Pencilmarks;
+        }
+    }
+
+    for (auto& puzzle_tile : this->PuzzleBoard.PuzzleTiles) {
+        archive& puzzle_tile->Row;
+        archive& puzzle_tile->Column;
+    }
 
     return true;
+}
+
+SudokuDifficulty Instance::LoadDifficultyFromSaveFile(const char* filepath) noexcept
+{
+    std::ifstream ifile(filepath, std::ios::binary);
+    if (!ifile.good())
+        return SudokuDifficulty_Random;
+
+    boost::archive::binary_iarchive iarchive(ifile);
+    SudokuDifficulty difficulty = SudokuDifficulty_Random;
+    try {
+        iarchive & difficulty;
+    }
+    catch (const std::exception&) {
+        return SudokuDifficulty_Random;
+    }
+
+    return difficulty;
 }
 
 bool Instance::CreateSudoku(SudokuDifficulty game_difficulty) noexcept
@@ -984,76 +1066,6 @@ bool Instance::GeneratePuzzle() noexcept
     return true;
 }
 
-template<class Archive>
-void Instance::save(Archive& archive, const uint32_t version) const
-{
-    // Archive the difficulty
-    archive & (this->GameDifficulty == SudokuDifficulty_Random ? this->RandomDifficulty : this->GameDifficulty);
-
-    // Archive the solution board
-    for (auto& row_tile : this->SolutionBoard.BoardTiles)
-        for (auto& tile : row_tile)
-            archive & tile.TileNumber;
-
-    // Archive the puzzle board
-    for (auto& row_tile : this->PuzzleBoard.BoardTiles) {
-        for (auto& tile : row_tile) {
-            archive & tile.TileNumber;
-            archive & tile.Pencilmarks;
-        }
-    }
-
-    for (auto& puzzle_tile : this->PuzzleBoard.PuzzleTiles) {
-        archive & puzzle_tile->Row;
-        archive & puzzle_tile->Column;
-    }
-}
-
-template<class Archive>
-void Instance::load(Archive& archive, const uint32_t version)
-{
-    // Read the difficulty
-    this->GameDifficulty = SudokuDifficulty_Random;
-    archive & this->RandomDifficulty;
-
-    {   // Read the solution board archive
-        for (size_t row = 0; row < 9; ++row) {
-            for (size_t col = 0; col < 9; ++col) {
-                archive & this->SolutionBoard.GetTile(row, col).TileNumber;
-            }
-        }
-    }
-
-    {
-        std::array<std::bitset<9>, 81> pencilmarks;
-        std::array<std::array<int, 9>, 9> incomplete_puzzle_board;
-        for (size_t row = 0; row < 9; ++row) {
-            for (size_t col = 0; col < 9; ++col) {
-                archive & incomplete_puzzle_board[row][col];
-                archive & pencilmarks[(row * 9) + col];
-            }
-        }
-
-        this->PuzzleBoard.CreateSudokuBoard(incomplete_puzzle_board, false);
-        for (int row = 0; row < 9; ++row)
-            for (int col = 0; col < 9; ++col)
-                this->PuzzleBoard.GetTile(row, col).Pencilmarks = pencilmarks[(row * 9) + col];
-
-        int puzzle_row = 0;
-        int puzzle_col = 0;
-        while (true) {
-            try {
-                archive & puzzle_row;
-                archive & puzzle_col;
-            }
-            catch (const std::exception&) {
-                break;
-            }
-            this->PuzzleBoard.PuzzleTiles.push_back(&this->PuzzleBoard.GetTile(puzzle_row, puzzle_col));
-        }
-    }
-}
-
 //----------------------------------------------------------------------
 // Sudoku GETTERS
 //----------------------------------------------------------------------
@@ -1111,6 +1123,11 @@ bool Instance::ResetTile(int row, int col) noexcept
     return SetTile(row, col, 0);
 }
 
+void Instance::ResetTurnLogs() noexcept
+{
+    GameTurnLogs.Reset();
+}
+
 void Instance::RemovePencilmark(int row, int col, int number) noexcept
 {
     assert(number > 0 && number <= 9);
@@ -1129,14 +1146,17 @@ void Instance::AddPencilmark(int row, int col, int number) noexcept
     GameTurnLogs.Add(row, col, tile.TileNumber, tile.TileNumber, previous_pm, tile.Pencilmarks);
 }
 
-void Instance::UpdateAllPencilmarks() noexcept
-{
-    PuzzleBoard.UpdateRemovePencilMarks();
-}
-
 void Instance::ResetAllPencilmarks() noexcept
 {
     PuzzleBoard.ResetAllPencilMarks();
+}
+
+void Instance::ClearAllPencilmarks() noexcept
+{
+    for (auto& tile : PuzzleBoard.PuzzleTiles) {
+        tile->Pencilmarks.reset();
+        tile->Pencilmarks.flip();
+    }
 }
 
 bool Instance::CheckPuzzleState() const noexcept
