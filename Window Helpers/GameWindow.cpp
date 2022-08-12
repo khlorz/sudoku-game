@@ -23,6 +23,7 @@ static int PencilmarkButton(const char* label, const ImVec2& sz, const std::bits
 
 GameWindow::GameWindow() :
     GameStart(false),
+    GamePaused(false),
     WindowClose(false),
     Initialized(false),
     CheckGameState(false),
@@ -136,7 +137,7 @@ void GameWindow::RenderSudokuBoard()
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
         ImGui::PushFont(ImGui::GetIO().Fonts->Fonts[2]);
-        ImGui::BeginDisabled(!GameStart);
+        ImGui::BeginDisabled(!GameStart || GamePaused);
         for (size_t row = 0; row < 9; ++row) {
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
@@ -154,7 +155,7 @@ void GameWindow::RenderSudokuBoard()
 
             for (size_t col = 0; col < 9; ++col) {
                 ImGui::TableNextColumn();
-                if (SudokuGameTiles[row][col].RenderButton(SudokuContext, row, col, ShowError)) {
+                if (GamePaused ? ImGui::Button("##EmptyButton", SudokuTile::ButtonSize) : SudokuGameTiles[row][col].RenderButton(SudokuContext, row, col, ShowError)) {
                     SudokuGameTiles[row][col].UpdateTileNumber(ShowPencilmarks && !SudokuContext.GetPuzzleBoard()->GetTile(row, col).IsTileFilled() ? TileState_Pencilmark : TileState_Normal);
                     CheckGameState = true;
                 }
@@ -379,6 +380,7 @@ void GameWindow::LoadSudokuFileWindow()
             ImGui::SetNextWindowSize(ImVec2(460.0f, 115.0f), ImGuiCond_Appearing);
             ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
         }
+        NewGameResult.reset();
     }
 
     if (ImGui::BeginPopupModal("Invalid File!##ErrorWindow", nullptr, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize)) {
@@ -467,13 +469,16 @@ void GameWindow::LoadSaveFileWindow()
         }
 
         for (auto& save_slot : save_slots) {
-            if (save_slot.Exists = std::filesystem::exists(save_slot.Directory)) {
-                const auto& file_time = std::filesystem::directory_entry(save_slot.Directory).last_write_time();
-                std::time_t converted_time = std::chrono::system_clock::to_time_t(std::chrono::clock_cast<std::chrono::system_clock>(file_time));
-                localtime_s(&save_slot.DateTime, &converted_time);
-            }
-            else
+            save_slot.Exists = std::filesystem::exists(save_slot.Directory);
+            if (!save_slot.Exists) {
                 save_slot.Difficulty = 0;
+                continue;
+            }
+
+            save_slot.Difficulty = sdq::Instance::LoadDifficultyFromSaveFile(save_slot.Directory.data());
+            const auto& file_time = std::filesystem::directory_entry(save_slot.Directory).last_write_time();
+            std::time_t converted_time = std::chrono::system_clock::to_time_t(std::chrono::clock_cast<std::chrono::system_clock>(file_time));
+            localtime_s(&save_slot.DateTime, &converted_time);
         }
     };
 
@@ -740,63 +745,65 @@ void GameWindow::PencilmarkOptions()
 {
     if (ImGui::Button(ShowPencilmarks ? "Hide Pencilmarks" : "Show Pencilmarks", ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
         ShowPencilmarks = !ShowPencilmarks;
-        if (!ShowSolution) {
+        if (!ShowSolution && ShowPencilmarks) {
             for (auto& row_tile : SudokuGameTiles)
                 for (auto& tile : row_tile)
-                    tile.UpdateTileNumber(ShowPencilmarks ? TileState_Pencilmark : TileState_Normal);
+                    tile.UpdateTileNumber(TileState_Pencilmark);
         }
     }
-    //if (ImGui::Button("Generate Pencilmarks", ImVec2(ImGui::GetContentRegionAvail().x / 2.0f, 0.0f))) {
-    //    if (ShowPencilmarks) {
-    //        ImGui::OpenPopup("Are You Sure##Pencilmark");
-    //        ImGui::SetNextWindowSize(ImVec2(400.0f, 100.0f), ImGuiCond_Always);
-    //        ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-    //    }
-    //    else {
-    //        ShowPencilmarks = true;
-    //        SudokuContext.ResetAllPencilmarks();
-    //        if (!ShowSolution) {
-    //            for (auto& row_tile : SudokuGameTiles)
-    //                for (auto& tile : row_tile)
-    //                    tile.UpdateTileNumber(TileState_Pencilmark);
-    //        }
-    //    }
-    //}
 
-    //if (ImGui::BeginPopupModal("Are You Sure##Pencilmark", nullptr, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize)) {
-    //    CenterText("This action will remove and/or replace current pencilmarks.");
-    //    CenterText("This action cannot be undone. Are you sure you want to generate new pencilmarks?");
-
-    //    constexpr ImVec2 button_size(50.0f, 0.0f);
-    //    ImGui::SetCursorPosX((ImGui::GetWindowSize().x - button_size.x * 2.0f) * 0.50f);
-    //    if (ImGui::Button("Yes##pmcconfirm", button_size)) {
-    //        SudokuContext.ResetAllPencilmarks();
-    //        if (!ShowSolution) {
-    //            for (auto& row_tile : SudokuGameTiles)
-    //                for (auto& tile : row_tile)
-    //                    tile.UpdateTileNumber(TileState_Pencilmark);
-    //        }
-    //        ImGui::CloseCurrentPopup();
-    //    }
-
-    //    ImGui::SameLine();
-    //    if (ImGui::Button("No##pmconfirm", button_size))
-    //        ImGui::CloseCurrentPopup();
-
-    //    ImGui::EndPopup();
-    //}
-
-    //ImGui::BeginDisabled(!ShowPencilmarks);
-    //ImGui::SameLine();
-    //if (ImGui::Button("Remove Pencilmarks", ImVec2(ImGui::GetContentRegionAvail().x, 0.0f))) {
-    //    ShowPencilmarks = false;
-    //    if (!ShowSolution) {
-    //        for (auto& row_tile : SudokuGameTiles)
-    //            for (auto& tile : row_tile)
-    //                tile.UpdateTileNumber(TileState_Normal);
-    //    }
-    //}
-    //ImGui::EndDisabled();
+    ImGui::BeginDisabled(!ShowPencilmarks);
+    if (ImGui::Button("Reset Pencilmarks", ImVec2(ImGui::GetContentRegionAvail().x / 2.0f, 0.0f))) {
+        ImGui::OpenPopup("Are You Sure##ResetPencilmark");
+        ImGui::SetNextWindowSize(ImVec2(360.0f, 97.0f), ImGuiCond_Always);
+        ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    }
+    
+    if (ImGui::BeginPopupModal("Are You Sure##ResetPencilmark", nullptr, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize)) {
+        CenterText("This action will reset and replace current pencilmarks.");
+        CenterText("This action cannot be undone. Proceed?");
+    
+        constexpr ImVec2 button_size(50.0f, 0.0f);
+        ImGui::SetCursorPosX((ImGui::GetWindowSize().x - button_size.x * 2.0f) * 0.50f);
+        if (ImGui::Button("Yes##pmcconfirm", button_size)) {
+            SudokuContext.ResetAllPencilmarks();
+            SudokuContext.ResetTurnLogs();
+            ImGui::CloseCurrentPopup();
+        }
+    
+        ImGui::SameLine();
+        if (ImGui::Button("No##pmconfirm", button_size))
+            ImGui::CloseCurrentPopup();
+    
+        ImGui::EndPopup();
+    }
+    
+    ImGui::SameLine();
+    if (ImGui::Button("Clear All Pencilmarks", ImVec2(ImGui::GetContentRegionAvail().x, 0.0f))) {
+        ImGui::OpenPopup("Are You Sure##ClearPencilmark");
+        ImGui::SetNextWindowSize(ImVec2(360.0f, 97.0f), ImGuiCond_Always);
+        ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    }
+    
+    if (ImGui::BeginPopupModal("Are You Sure##ClearPencilmark", nullptr, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize)) {
+        CenterText("This action will remove current pencilmarks.");
+        CenterText("This action cannot be undone. Proceed?");
+    
+        constexpr ImVec2 button_size(50.0f, 0.0f);
+        ImGui::SetCursorPosX((ImGui::GetWindowSize().x - button_size.x * 2.0f) * 0.50f);
+        if (ImGui::Button("Yes##pmcconfirm", button_size)) {
+            SudokuContext.ClearAllPencilmarks();
+            SudokuContext.ResetTurnLogs();
+            ImGui::CloseCurrentPopup();
+        }
+    
+        ImGui::SameLine();
+        if (ImGui::Button("No##pmconfirm", button_size))
+            ImGui::CloseCurrentPopup();
+    
+        ImGui::EndPopup();
+    }
+    ImGui::EndDisabled();
 }
 
 void GameWindow::UndoRedoOptions()
@@ -822,80 +829,53 @@ void GameWindow::UndoRedoOptions()
     ImGui::EndDisabled();
 }
 
-void GameWindow::TileClearingOptions()
+void GameWindow::TimeOptions()
 {
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4.00f, 4.00f));
-    constexpr float combo_width = 165.0f;
-    constexpr float text_widget_spacing = 88.0f;
-    constexpr std::array<const char*, 9> cell_choices = { "Cell 1: A1 - C3", "Cell 2: A4 - C6" , "Cell 3: A7 - C9",  "Cell 4: D1 - F3", "Cell 5: D4 - F6", "Cell 6: D7 - F9", "Cell 7: G1 - I3", "Cell 8: G4 - I6", "Cell 9: G7 - I9" };
-    static int cell_clear_num = 0;
-    ImGui::AlignTextToFramePadding();
-    ImGui::Text("Clear Cell: ");
-    ImGui::SameLine(text_widget_spacing);
-    ImGui::PushItemWidth(combo_width);
-    SimpleComboWrapper("##ClearCellCombo", cell_choices, cell_clear_num);
+    ImGui::BeginDisabled(!GameStart);
+    if (ImGui::Button(GamePaused ? "Resume Game" : "Pause Game", ImVec2(ImGui::GetContentRegionAvail().x / 2.0f, 0))) {
+        GamePaused = !GamePaused;
+    }
     ImGui::SameLine();
-    if (ImGui::ArrowButton("##CellClear", ImGuiDir_Right)) {
-        int actual_cell = cell_clear_num;
-        int min_row = (actual_cell / 3) * 3;
-        int max_row = min_row + 3;
-        int min_col = (actual_cell % 3) * 3;
-        int max_col = min_col + 3;
-        for (int row = min_row; row < max_row; ++row) {
-            for (int col = min_col; col < max_col; ++col) {
-                if (!SudokuGameTiles[row][col].IsTileFilled())
-                    continue;
+    if (ImGui::Button("Restart Game", ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
+        ImGui::OpenPopup("Restart Game##Popup");
+        ImGui::SetNextWindowSize(ImVec2(360.0f, 97.0f), ImGuiCond_Always);
+        ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    }
 
-                if (SudokuGameTiles[row][col].IsPuzzleTile()) {
+    if (ImGui::BeginPopupModal("Restart Game##Popup", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove)) {
+        CenterText("This action will reset every progress you've made!");
+        CenterText("Are you sure?");
+
+        constexpr ImVec2 button_size(100.0f, 0.0f);
+        ImGui::SetCursorPosX((ImGui::GetWindowSize().x - (100.0f * 2.0f)) * 0.5f);
+        if (ImGui::Button("Restart", button_size)) {
+            GamePaused      = false;
+            ShowError       = false;
+            ShowSolution    = false;
+            ShowPencilmarks = false;
+            TimeElapsed.Clear();
+
+            for (size_t row = 0; row < 9; ++row) {
+                for (size_t col = 0; col < 9; ++col) {
+                    if (!SudokuGameTiles[row][col].IsPuzzleTile())
+                        continue;
+
                     SudokuContext.ResetTile(row, col);
-                    SudokuGameTiles[row][col].UpdateTileNumber(ShowPencilmarks ? TileState_Pencilmark : TileState_Normal);
+                    SudokuGameTiles[row][col].UpdateTileNumber(TileState_Normal);
                 }
             }
+
+            SudokuContext.ResetTurnLogs();
+            ImGui::CloseCurrentPopup();
         }
+
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", button_size))
+            ImGui::CloseCurrentPopup();
+
+        ImGui::EndPopup();
     }
-
-    constexpr std::array<const char*, 9> row_choices = { "Row 1: A1 - A9", "Row 2: B1 - B9", "Row 3: C1 - C9", "Row 4: D1 - D9", "Row 5: E1 - E9", "Row 6: F1 - F9", "Row 7: G1 - G9", "Row 8: H1 - H9", "Row 9: I1 - I9" };
-    static int row_clear_num = 0;
-    ImGui::AlignTextToFramePadding();
-    ImGui::Text("Clear Row: ");
-    ImGui::SameLine(text_widget_spacing);
-    ImGui::PushItemWidth(combo_width);
-    SimpleComboWrapper("##RowClearCombo", row_choices, row_clear_num);
-    ImGui::SameLine();
-    if (ImGui::ArrowButton("##RowClear", ImGuiDir_Right)) {
-        int actual_row = row_clear_num;
-        for (int col = 0; col < 9; ++col) {
-            if (!SudokuGameTiles[actual_row][col].IsTileFilled())
-                continue;
-
-            if (SudokuGameTiles[actual_row][col].IsPuzzleTile()) {
-                SudokuContext.ResetTile(actual_row, col);
-                SudokuGameTiles[actual_row][col].UpdateTileNumber(ShowPencilmarks ? TileState_Pencilmark : TileState_Normal);
-            }
-        }
-    }
-
-    constexpr std::array<const char*, 9> column_choices = { "Column 1: A1 - I1", "Column 2: A2 - I2", "Column 3: A3 - I3", "Column 4: A4 - I4", "Column 5: A5 - I5", "Column 6: A6 - I6", "Column 7: A7 - I7", "Column 8: A8 - I8", "Column 9: A9 - I9" };
-    static int column_clear_num = 0;
-    ImGui::AlignTextToFramePadding();
-    ImGui::Text("Clear Column: ");
-    ImGui::SameLine(text_widget_spacing);
-    ImGui::PushItemWidth(combo_width);
-    SimpleComboWrapper("##ColumnClearCombo", column_choices, column_clear_num);
-    ImGui::SameLine();
-    if (ImGui::ArrowButton("##ColClear", ImGuiDir_Right)) {
-        int actual_col = column_clear_num;
-        for (int row = 0; row < 9; ++row) {
-            if (!SudokuGameTiles[row][actual_col].IsTileFilled())
-                continue;
-
-            if (SudokuGameTiles[row][actual_col].IsPuzzleTile()) {
-                SudokuContext.ResetTile(row, actual_col);
-                SudokuGameTiles[row][actual_col].UpdateTileNumber(ShowPencilmarks ? TileState_Pencilmark : TileState_Normal);
-            }
-        }
-    }
-    ImGui::PopStyleVar();
+    ImGui::EndDisabled();
 }
 
 void GameWindow::ErrorAndSolutionOptions()
@@ -1071,19 +1051,25 @@ void GameWindow::GameOptions()
     this->NewGameOption();
 
     ImGui::PushStyleVar(ImGuiStyleVar_IndentSpacing, 2.00f);
-    if (ImGui::CollapsingHeader("Common Commands")) {
+    if (ImGui::CollapsingHeader("Puzzle")) {
         ImGui::Indent();
-        ImGui::BeginDisabled(!GameStart);
-        this->PencilmarkOptions();
+        this->TimeOptions();
+        ImGui::BeginDisabled(!GameStart || GamePaused);
         this->UndoRedoOptions();
-        this->TileClearingOptions();
+        this->ErrorAndSolutionOptions();
         ImGui::EndDisabled();
         ImGui::Unindent();
     }
-    if (ImGui::CollapsingHeader("Miscellaneous")) {
+    if (ImGui::CollapsingHeader("Pencilmarks")) {
+        ImGui::Indent();
+        ImGui::BeginDisabled(!GameStart || GamePaused);
+        this->PencilmarkOptions();
+        ImGui::EndDisabled();
+        ImGui::Unindent();
+    }
+    if (ImGui::CollapsingHeader("File")) {
         ImGui::Indent();
         ImGui::BeginDisabled(!GameStart);
-        this->ErrorAndSolutionOptions();
         this->SaveProgressOption();
         ImGui::EndDisabled();
         this->SavePuzzleOption();
@@ -1156,6 +1142,7 @@ bool GameWindow::CreateNewGame(const std::string& filepath)
 void GameWindow::StopOngoingGame()
 {
     GameStart       = false;
+    GamePaused      = false;
     ShowSolution    = false;
     ShowError       = false;
     ShowPencilmarks = false;
@@ -1216,7 +1203,7 @@ void GameWindow::Update()
 {
     ImGuiIO io = ImGui::GetIO();
 
-    if (GameStart)
+    if (GameStart && !GamePaused)
         TimeElapsed += io.DeltaTime;
 
     if (ShowSolution)
@@ -1224,10 +1211,8 @@ void GameWindow::Update()
 
     if (CheckGameState) {
         if (SudokuContext.CheckPuzzleState()) {
-            GameStart             = false;
-            OpenGameEndWindow     = true;
-            ShowSolution    = false;
-            ShowError = false;
+            OpenGameEndWindow = true;
+            StopOngoingGame();
         }
         else {
             RecheckTiles();
@@ -1364,6 +1349,7 @@ bool SudokuTile::RenderButton(sdq::Instance& sudoku_context, uint16_t row, uint1
     constexpr ImU32 error_buttonhovered_col = 2721396170;
     constexpr ImU32 error_buttonactive_col  = 2267161319;
     const bool error_tile                   = (ErrorTile && error_override) || (ShowAsSolution && *TileNumber != *SolutionNumber);
+    const bool show_as_pencilmark           = *TileNumber == 0 && !ShowAsSolution && PuzzleTile && ShowAsPencilmark;
     ImGui::PushStyleVar(ImGuiStyleVar_DisabledAlpha, ShowAsSolution ? 0.90f : 0.80f);
     ImGui::PushStyleColor(ImGuiCol_Button       , error_tile ? error_button_col        : ImGui::GetColorU32(ImGuiCol_Button));
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, error_tile ? error_buttonhovered_col : ImGui::GetColorU32(ImGuiCol_ButtonHovered));
@@ -1372,7 +1358,6 @@ bool SudokuTile::RenderButton(sdq::Instance& sudoku_context, uint16_t row, uint1
 
     static int pencilmark_num = 0;
     static int pressed_pm_num = 0;
-    const bool show_as_pencilmark = *TileNumber == 0 && !ShowAsSolution && PuzzleTile && ShowAsPencilmark;
     ImGui::PushFont(show_as_pencilmark ? ImGui::GetIO().Fonts->Fonts[3] : ImGui::GetIO().Fonts->Fonts[2]);
     if (show_as_pencilmark ? pressed_pm_num = PencilmarkButton(ButtonLabel, ButtonSize, *Pencilmark) : ImGui::Button(ButtonLabel, ButtonSize)) {
         pencilmark_num = pressed_pm_num;

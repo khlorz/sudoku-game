@@ -13,7 +13,7 @@ enum TileState_
 	TileState_Normal               = 1,
 	TileState_Solution             = 2,
 	TileState_Pencilmark           = 4,
-	TileState_NormalStillPencimark = 8
+	TileState_Blank                = 8
 };
 using TileState = int;
 
@@ -36,6 +36,7 @@ private:
 	bool PuzzleTile;                    // The tile that can't be changed or is the puzzle number
 	bool ErrorTile;                     // A bool to show if the tile is an error (has duplicate number in the row or column or cell)
 
+public:
 	static constexpr size_t CharBufferSize = 32;
 	static constexpr ImVec2 ButtonSize = ImVec2(48.50f, 48.50f);
 
@@ -99,6 +100,7 @@ class GameWindow
 private:
 	bool             Initialized;
 	bool             GameStart;
+	bool             GamePaused;
 	bool             WindowClose;
 	bool             ShowSolution;
 	bool             ShowError;
@@ -113,7 +115,7 @@ private:
 	bool             LoadAFile;
 	TimeObj          TimeElapsed;
 	TimeObj          ShowSolutionTotalTime;
-	sdq::Instance SudokuContext;
+	sdq::Instance    SudokuContext;
 	SudokuTiles<9>   SudokuGameTiles;
 	SudokuDifficulty GameDifficulty;
 	std::string      CurrentlyOpenFile;
@@ -151,7 +153,7 @@ private:
 	void SetSudokuTileFromSaveFile();
 	void PencilmarkOptions();
 	void UndoRedoOptions();
-	void TileClearingOptions();
+	void TimeOptions();
 	void ErrorAndSolutionOptions();
 	void SaveProgressOption();
 	void SavePuzzleOption();
