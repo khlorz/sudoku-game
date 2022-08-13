@@ -512,35 +512,58 @@ BoardTile* GameBoard::FindLowestMRV() noexcept
 
 void GameBoard::UpdateRemovePencilMarks() noexcept
 {
-    for (auto& row_tiles : BoardTiles) {
-        for (auto& tile : row_tiles) {
-            if (!tile.IsTileFilled()) {
-                tile.RemovePencilmarks();
-            }
-        }
+    for (auto& puzzle_tile : PuzzleTiles)
+        if (!puzzle_tile->IsTileFilled())
+            puzzle_tile->RemovePencilmarks();
+}
+
+void GameBoard::UpdateRemovePencilMarks(int row, int col) noexcept
+{
+    auto [min_row, max_row, min_col, max_col] = sdq::helpers::GetMinMaxRowColumnFromCell(sdq::helpers::GetCellBlock(row, col));
+    for (auto& puzzle_tile : PuzzleTiles) {
+        if (puzzle_tile->IsTileFilled())
+            continue;
+
+        if (puzzle_tile->Row >= min_row && puzzle_tile->Row < max_row && puzzle_tile->Column >= min_col && puzzle_tile->Column < max_col)
+            puzzle_tile->RemovePencilmarks();
+
+        else if (puzzle_tile->Row == row)
+            puzzle_tile->RemovePencilmarks();
+
+        else if (puzzle_tile->Column == col)
+            puzzle_tile->RemovePencilmarks();
     }
 }
 
 void GameBoard::UpdateReapplyPencilMarks() noexcept
 {
-    for (auto& row_tiles : BoardTiles) {
-        for (auto& tile : row_tiles) {
-            if (!tile.IsTileFilled()) {
-                tile.ReapplyPencilmarks();
-            }
-        }
+    for (auto& puzzle_tile : PuzzleTiles)
+        if (!puzzle_tile->IsTileFilled())
+            puzzle_tile->ReapplyPencilmarks();
+}
+
+void GameBoard::UpdateReapplyPencilMarks(int row, int col) noexcept
+{
+    auto [min_row, max_row, min_col, max_col] = sdq::helpers::GetMinMaxRowColumnFromCell(sdq::helpers::GetCellBlock(row, col));
+    for (auto& puzzle_tile : PuzzleTiles) {
+        if (puzzle_tile->IsTileFilled())
+            continue;
+
+        if (puzzle_tile->Row >= min_row && puzzle_tile->Row < max_row && puzzle_tile->Column >= min_col && puzzle_tile->Column < max_col)
+            puzzle_tile->ReapplyPencilmarks();
+
+        else if (puzzle_tile->Row == row)
+            puzzle_tile->ReapplyPencilmarks();
+
+        else if (puzzle_tile->Column == col)
+            puzzle_tile->ReapplyPencilmarks();
     }
 }
 
 void GameBoard::ResetAllPencilMarks() noexcept
 {
-    for (auto& row_tiles : BoardTiles) {
-        for (auto& tile : row_tiles) {
-            if (!tile.IsTileFilled()) {
-                tile.ResetPencilmarks();
-            }
-        }
-    }
+    for (auto& puzzle_tile : PuzzleTiles)
+        puzzle_tile->ResetPencilmarks();
 }
 
 bool GameBoard::UpdateRowPencilMarks(int row, int bit_number, const std::vector<int>& exempted_cells) noexcept
@@ -1056,7 +1079,7 @@ bool Instance::GeneratePuzzle() noexcept
     // Create the neccesary puzzle tiles. Needed for solving the puzzle if someone wanted to, although there is already a solution
     PuzzleBoard.CreatePuzzleTiles();
     // Create the neccesary pencil marks of each tiles. Needed especially for most sudoku players
-    PuzzleBoard.UpdateRemovePencilMarks();
+    PuzzleBoard.ResetAllPencilMarks();
 
     if (GameDifficulty == SudokuDifficulty_Random)
         RandomDifficulty = sdq::utils::CheckPuzzleDifficulty(PuzzleBoard);
@@ -1111,9 +1134,9 @@ bool Instance::SetTile(int row, int col, int number) noexcept
     PuzzleBoard.UpdateBoardOccurences();
 
     if (number != 0)
-        PuzzleBoard.UpdateRemovePencilMarks();
+        PuzzleBoard.UpdateRemovePencilMarks(input_tile.Row, input_tile.Column);
     else
-        PuzzleBoard.UpdateReapplyPencilMarks();
+        PuzzleBoard.UpdateReapplyPencilMarks(input_tile.Row, input_tile.Column);
 
     return true;
 }
@@ -1214,10 +1237,11 @@ void Instance::UndoTurn() noexcept
     if (input_tile.TileNumber != previous_turn_tile->PreviousNumber) {
         input_tile.SetTileNumber(previous_turn_tile->PreviousNumber);
         PuzzleBoard.UpdateBoardOccurences(input_tile.Row, input_tile.Column);
+
         if (previous_turn_tile->PreviousNumber != 0)
-            PuzzleBoard.UpdateRemovePencilMarks();
+            PuzzleBoard.UpdateRemovePencilMarks(input_tile.Row, input_tile.Column);
         else
-            PuzzleBoard.UpdateReapplyPencilMarks();
+            PuzzleBoard.UpdateReapplyPencilMarks(input_tile.Row, input_tile.Column);
     }
 
     input_tile.Pencilmarks = previous_turn_tile->PreviousPencilmark;
@@ -1238,10 +1262,11 @@ void Instance::RedoTurn() noexcept
     else {
         input_tile.SetTileNumber(next_turn_tile->NextNumber);
         PuzzleBoard.UpdateBoardOccurences(input_tile.Row, input_tile.Column);
+
         if (next_turn_tile->NextNumber != 0)
-            PuzzleBoard.UpdateRemovePencilMarks();
+            PuzzleBoard.UpdateRemovePencilMarks(input_tile.Row, input_tile.Column);
         else
-            PuzzleBoard.UpdateReapplyPencilMarks();
+            PuzzleBoard.UpdateReapplyPencilMarks(input_tile.Row, input_tile.Column);
     }
 
     GameTurnLogs.Redo();
@@ -1355,18 +1380,18 @@ bool SolveHumanelyEX(GameBoard& sudoku_board, size_t& difficulty_score) noexcept
     while (true) {
         if (size_t count = techs::FindSingleCandidates(sudoku_board)) {
             difficulty_score += count * 100;
-            if (sudoku_board.IsBoardCompleted()) {
+            if (sudoku_board.IsBoardCompleted())
                 return true;
-            }
+            
             sudoku_board.UpdateRemovePencilMarks();
             continue;
         }
 
         if (size_t count = techs::FindSinglePosition(sudoku_board)) {
             difficulty_score += count * 100;
-            if (sudoku_board.IsBoardCompleted()) {
+            if (sudoku_board.IsBoardCompleted())
                 return true;
-            }
+            
             sudoku_board.UpdateRemovePencilMarks();
             continue;
         }

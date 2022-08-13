@@ -152,6 +152,8 @@ struct GameBoard
 
     void  UpdateRemovePencilMarks() noexcept;
     void  UpdateReapplyPencilMarks() noexcept;
+    void  UpdateRemovePencilMarks(int row, int col) noexcept;
+    void  UpdateReapplyPencilMarks(int row, int col) noexcept;
     void  ResetAllPencilMarks() noexcept;
     bool  UpdateRowPencilMarks(int row, int bit_number, const std::vector<int>& exempted_cells) noexcept;
     bool  UpdateRowPencilMarks(int row, int bit_number, const std::vector<BoardTile*>& exempted_tiles) noexcept;
