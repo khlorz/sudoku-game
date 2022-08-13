@@ -743,17 +743,18 @@ void GameWindow::RenderNewGameLoadingScreen()
 
 void GameWindow::PencilmarkOptions()
 {
-    if (ImGui::Button(ShowPencilmarks ? "Hide Pencilmarks" : "Show Pencilmarks", ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
+    if (ImGui::Button(ShowPencilmarks ? "Hide Pencilmarks" : "Show Pencilmarks", ImVec2(ImGui::GetContentRegionAvail().x / 2.0f, 0))) {
         ShowPencilmarks = !ShowPencilmarks;
-        if (!ShowSolution && ShowPencilmarks) {
+        if (!ShowSolution) {
             for (auto& row_tile : SudokuGameTiles)
                 for (auto& tile : row_tile)
-                    tile.UpdateTileNumber(TileState_Pencilmark);
+                    tile.UpdateTileNumber(ShowPencilmarks ? TileState_Pencilmark : TileState_Normal);
         }
     }
 
     ImGui::BeginDisabled(!ShowPencilmarks);
-    if (ImGui::Button("Reset Pencilmarks", ImVec2(ImGui::GetContentRegionAvail().x / 2.0f, 0.0f))) {
+    ImGui::SameLine();
+    if (ImGui::Button("Reset Pencilmarks", ImVec2(ImGui::GetContentRegionAvail().x, 0.0f))) {
         ImGui::OpenPopup("Are You Sure##ResetPencilmark");
         ImGui::SetNextWindowSize(ImVec2(360.0f, 97.0f), ImGuiCond_Always);
         ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
@@ -778,31 +779,31 @@ void GameWindow::PencilmarkOptions()
         ImGui::EndPopup();
     }
     
-    ImGui::SameLine();
-    if (ImGui::Button("Clear All Pencilmarks", ImVec2(ImGui::GetContentRegionAvail().x, 0.0f))) {
-        ImGui::OpenPopup("Are You Sure##ClearPencilmark");
-        ImGui::SetNextWindowSize(ImVec2(360.0f, 97.0f), ImGuiCond_Always);
-        ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-    }
-    
-    if (ImGui::BeginPopupModal("Are You Sure##ClearPencilmark", nullptr, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize)) {
-        CenterText("This action will remove current pencilmarks.");
-        CenterText("This action cannot be undone. Proceed?");
-    
-        constexpr ImVec2 button_size(50.0f, 0.0f);
-        ImGui::SetCursorPosX((ImGui::GetWindowSize().x - button_size.x * 2.0f) * 0.50f);
-        if (ImGui::Button("Yes##pmcconfirm", button_size)) {
-            SudokuContext.ClearAllPencilmarks();
-            SudokuContext.ResetTurnLogs();
-            ImGui::CloseCurrentPopup();
-        }
-    
-        ImGui::SameLine();
-        if (ImGui::Button("No##pmconfirm", button_size))
-            ImGui::CloseCurrentPopup();
-    
-        ImGui::EndPopup();
-    }
+    //ImGui::SameLine();
+    //if (ImGui::Button("Clear All Pencilmarks", ImVec2(ImGui::GetContentRegionAvail().x, 0.0f))) {
+    //    ImGui::OpenPopup("Are You Sure##ClearPencilmark");
+    //    ImGui::SetNextWindowSize(ImVec2(360.0f, 97.0f), ImGuiCond_Always);
+    //    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    //}
+    //
+    //if (ImGui::BeginPopupModal("Are You Sure##ClearPencilmark", nullptr, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize)) {
+    //    CenterText("This action will remove current pencilmarks.");
+    //    CenterText("This action cannot be undone. Proceed?");
+    //
+    //    constexpr ImVec2 button_size(50.0f, 0.0f);
+    //    ImGui::SetCursorPosX((ImGui::GetWindowSize().x - button_size.x * 2.0f) * 0.50f);
+    //    if (ImGui::Button("Yes##pmcconfirm", button_size)) {
+    //        SudokuContext.ClearAllPencilmarks();
+    //        SudokuContext.ResetTurnLogs();
+    //        ImGui::CloseCurrentPopup();
+    //    }
+    //
+    //    ImGui::SameLine();
+    //    if (ImGui::Button("No##pmconfirm", button_size))
+    //        ImGui::CloseCurrentPopup();
+    //
+    //    ImGui::EndPopup();
+    //}
     ImGui::EndDisabled();
 }
 
